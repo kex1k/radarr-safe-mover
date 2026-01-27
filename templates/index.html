@@ -271,6 +271,17 @@
             </div>
         </div>
 
+        <!-- Leftovers Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>🗑️ Leftover Files</span>
+                <button onclick="refreshLeftovers()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+            </div>
+            <div id="leftovers-container">
+                <div class="empty-state">Click Refresh to scan for leftover files</div>
+            </div>
+        </div>
+
         <!-- Settings Section -->
         <div class="section">
             <div class="section-title">
@@ -306,6 +317,142 @@
     <script>
         let movies = [];
         let queue = [];
+        let leftovers = [];
+
+        // Refresh leftovers list
+        async function refreshLeftovers() {
+            const container = document.getElementById('leftovers-container');
+            container.innerHTML = '<div class="loading">Scanning for leftover files...</div>';
+            
+            try {
+                const response = await fetch('/api/leftovers');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load leftovers');
+                }
+                
+                leftovers = await response.json();
+                renderLeftovers();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render leftovers list
+        function renderLeftovers() {
+            const container = document.getElementById('leftovers-container');
+            
+            if (leftovers.length === 0) {
+                container.innerHTML = '<div class="empty-state">No leftover files found</div>';
+                return;
+            }
+            
+            container.innerHTML = leftovers.map(leftover => {
+                const size = (leftover.size / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                const fileCount = leftover.file_count;
+                
+                // Build buttons based on can_recopy flag
+                let buttons = '';
+                if (leftover.can_recopy) {
+                    buttons = `
+                        <button
+                            onclick="recopyLeftover(${leftover.movie_id}, '${leftover.name.replace(/'/g, "\\'")}')"
+                            class="secondary"
+                            style="flex: 1;"
+                        >
+                            🔄 Re-copy
+                        </button>
+                        <button
+                            onclick="deleteLeftover('${leftover.path.replace(/'/g, "\\'")}', '${leftover.name.replace(/'/g, "\\'")}')"
+                            class="danger"
+                            style="flex: 1;"
+                        >
+                            🗑️ Delete
+                        </button>
+                    `;
+                } else {
+                    buttons = `
+                        <button
+                            onclick="deleteLeftover('${leftover.path.replace(/'/g, "\\'")}', '${leftover.name.replace(/'/g, "\\'")}')"
+                            class="danger"
+                        >
+                            🗑️ Delete
+                        </button>
+                    `;
+                }
+                
+                return `
+                    <div class="movie-item">
+                        <div class="movie-info">
+                            <div class="movie-title">${leftover.name}</div>
+                            <div class="movie-details">
+                                📦 ${size} | 📄 ${fileCount} file${fileCount !== 1 ? 's' : ''}
+                                ${leftover.can_recopy ? ' | ⚠️ Missing on HDD' : ''}
+                            </div>
+                            <div class="movie-details" style="font-size: 0.75em; color: #888; margin-top: 3px;">
+                                ${leftover.path}
+                            </div>
+                        </div>
+                        <div class="movie-actions">
+                            ${buttons}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Re-copy leftover to queue
+        async function recopyLeftover(movieId, name) {
+            if (!confirm(`Re-copy "${name}" from SSD to HDD?\n\nThis will add the movie to the copy queue.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/leftovers/recopy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ movie_id: movieId })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add to queue');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+                await refreshQueue();
+                await refreshLeftovers();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Delete leftover with confirmation
+        async function deleteLeftover(path, name) {
+            if (!confirm(`Are you sure you want to delete "${name}" and all its contents?\n\nThis action cannot be undone!`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/leftovers', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to delete leftover');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+                await refreshLeftovers();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
 
         // Load configuration on page load
         async function loadConfig() {

@@ -299,11 +299,13 @@ def process_copy_queue():
                 current_copy['progress'] = 'Completed successfully'
                 current_copy['completed_at'] = datetime.now().isoformat()
                 current_copy['dst_path'] = dst_path
+                
+                # Remove from queue immediately (not after delay)
+                item_id = current_copy['id']
+                copy_queue = [item for item in copy_queue if item['id'] != item_id]
                 save_queue()
                 
-                # Remove from queue after a delay
-                item_id = current_copy['id']
-                threading.Timer(5.0, lambda: remove_completed_item(item_id)).start()
+                logger.info(f"Removed completed item from queue. Remaining items: {len(copy_queue)}")
                 current_copy = None
                 
         except Exception as e:
@@ -313,15 +315,18 @@ def process_copy_queue():
                     current_copy['status'] = 'failed'
                     current_copy['progress'] = f'Error: {str(e)}'
                     current_copy['failed_at'] = datetime.now().isoformat()
+                    
+                    # Keep failed items in queue for manual review
                     save_queue()
                     current_copy = None
 
 def remove_completed_item(item_id):
-    """Remove completed item from queue"""
+    """Remove completed item from queue (legacy function, not used anymore)"""
     global copy_queue
     with copy_lock:
-        copy_queue = [item for item in copy_queue if item['id'] != item_id or item['status'] != 'completed']
+        copy_queue = [item for item in copy_queue if item['id'] != item_id]
         save_queue()
+        logger.info(f"Removed item {item_id} from queue")
 
 @app.route('/')
 def index():
@@ -473,6 +478,168 @@ def remove_from_queue(item_id):
         save_queue()
     
     return jsonify({'success': True})
+
+@app.route('/api/leftovers', methods=['GET'])
+def get_leftovers():
+    """Find files on filesystem that don't have corresponding movies in Radarr"""
+    try:
+        config = load_config()
+        
+        if not config.get('ssd_root_folder') or not config.get('hdd_root_folder'):
+            return jsonify({'error': 'Root folders not configured'}), 400
+        
+        ssd_root = config['ssd_root_folder']
+        hdd_root = config['hdd_root_folder']
+        
+        # Get all movies from Radarr
+        radarr_url = get_radarr_url(config)
+        headers = get_radarr_headers(config)
+        
+        response = requests.get(f"{radarr_url}/movie", headers=headers)
+        response.raise_for_status()
+        all_movies = response.json()
+        
+        # Build maps of movie paths and movies by directory name
+        radarr_ssd_paths = set()
+        hdd_movies_by_name = {}
+        
+        for movie in all_movies:
+            movie_path = movie.get('path', '')
+            if movie_path:
+                if movie_path.startswith(ssd_root):
+                    radarr_ssd_paths.add(movie_path)
+                elif movie_path.startswith(hdd_root):
+                    # Store HDD movies by directory name for matching
+                    dir_name = os.path.basename(movie_path)
+                    hdd_movies_by_name[dir_name] = movie
+        
+        # Scan filesystem for directories in SSD root
+        leftovers = []
+        if os.path.exists(ssd_root):
+            for item in os.listdir(ssd_root):
+                item_path = os.path.join(ssd_root, item)
+                
+                # Only check directories
+                if os.path.isdir(item_path):
+                    # Check if this directory is in Radarr SSD paths
+                    if item_path not in radarr_ssd_paths:
+                        # Calculate directory size
+                        total_size = 0
+                        file_count = 0
+                        for dirpath, dirnames, filenames in os.walk(item_path):
+                            for filename in filenames:
+                                filepath = os.path.join(dirpath, filename)
+                                try:
+                                    total_size += os.path.getsize(filepath)
+                                    file_count += 1
+                                except:
+                                    pass
+                        
+                        # Check if there's a movie in HDD with same name but file missing
+                        can_recopy = False
+                        movie_id = None
+                        if item in hdd_movies_by_name:
+                            hdd_movie = hdd_movies_by_name[item]
+                            movie_id = hdd_movie['id']
+                            # Check if the movie file actually exists on HDD
+                            if hdd_movie.get('hasFile'):
+                                movie_file_path = hdd_movie.get('movieFile', {}).get('path')
+                                if movie_file_path and not os.path.exists(movie_file_path):
+                                    can_recopy = True
+                                    logger.info(f"Found missing HDD file for {item}, can recopy")
+                        
+                        leftovers.append({
+                            'path': item_path,
+                            'name': item,
+                            'size': total_size,
+                            'file_count': file_count,
+                            'can_recopy': can_recopy,
+                            'movie_id': movie_id
+                        })
+        
+        logger.info(f"Found {len(leftovers)} leftover directories")
+        return jsonify(leftovers)
+        
+    except Exception as e:
+        logger.error(f"Error finding leftovers: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/leftovers', methods=['DELETE'])
+def delete_leftover():
+    """Delete a leftover directory"""
+    try:
+        data = request.json
+        path = data.get('path')
+        
+        if not path:
+            return jsonify({'error': 'No path provided'}), 400
+        
+        config = load_config()
+        ssd_root = config.get('ssd_root_folder')
+        
+        # Security check: ensure path is within SSD root
+        if not ssd_root or not path.startswith(ssd_root):
+            return jsonify({'error': 'Invalid path'}), 400
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            return jsonify({'error': 'Path does not exist'}), 404
+        
+        # Delete directory and all contents
+        logger.info(f"Deleting leftover directory: {path}")
+        shutil.rmtree(path)
+        logger.info(f"Successfully deleted: {path}")
+        
+        return jsonify({'success': True, 'message': f'Deleted {path}'})
+        
+    except Exception as e:
+        logger.error(f"Error deleting leftover: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/leftovers/recopy', methods=['POST'])
+def recopy_leftover():
+    """Re-add a leftover movie to the copy queue"""
+    try:
+        data = request.json
+        movie_id = data.get('movie_id')
+        
+        if not movie_id:
+            return jsonify({'error': 'No movie_id provided'}), 400
+        
+        config = load_config()
+        radarr_url = get_radarr_url(config)
+        headers = get_radarr_headers(config)
+        
+        # Get movie details from Radarr
+        response = requests.get(f"{radarr_url}/movie/{movie_id}", headers=headers)
+        response.raise_for_status()
+        movie = response.json()
+        
+        # Add to queue
+        global copy_queue
+        with copy_lock:
+            # Check if already in queue
+            if any(item['movie']['id'] == movie['id'] for item in copy_queue):
+                return jsonify({'error': 'Movie already in queue'}), 400
+            
+            # Add to queue
+            queue_item = {
+                'id': f"{movie['id']}_{datetime.now().timestamp()}",
+                'movie': movie,
+                'status': 'pending',
+                'progress': 'Waiting in queue...',
+                'added_at': datetime.now().isoformat()
+            }
+            
+            copy_queue.append(queue_item)
+            save_queue()
+        
+        logger.info(f"Re-added movie {movie['title']} to copy queue")
+        return jsonify({'success': True, 'message': f'Added {movie["title"]} to queue'})
+        
+    except Exception as e:
+        logger.error(f"Error re-copying leftover: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
 
 # Initialize queue processor on module load (works with Gunicorn)
 def init_queue_processor():
