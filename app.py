@@ -128,16 +128,25 @@ def process_copy_queue():
     """Background thread to process copy queue"""
     global current_copy, copy_queue
     
+    import time
+    
     while True:
+        # Check if there's work to do
         with copy_lock:
             if not copy_queue or current_copy:
-                continue
-            
-            # Get next item from queue
-            current_copy = copy_queue[0]
-            current_copy['status'] = 'copying'
-            current_copy['started_at'] = datetime.now().isoformat()
-            save_queue()
+                # Sleep before checking again
+                pass
+            else:
+                # Get next item from queue
+                current_copy = copy_queue[0]
+                current_copy['status'] = 'copying'
+                current_copy['started_at'] = datetime.now().isoformat()
+                save_queue()
+        
+        # Sleep if no work
+        if not current_copy:
+            time.sleep(1)
+            continue
         
         try:
             movie = current_copy['movie']
