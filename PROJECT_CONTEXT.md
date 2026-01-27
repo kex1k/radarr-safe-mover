@@ -9,10 +9,13 @@ Media servers often use fast SSD storage for active content and slower HDD stora
 ## Solution
 A single-page web application that:
 1. Lists movies on SSD via Radarr API
-2. Queues movies for transfer
-3. Copies files with minimal system impact (ionice/nice)
-4. Verifies integrity with SHA256 checksums
+2. Queues movies for transfer with real-time status tracking
+3. Copies files with minimal system impact (rsync + ionice/nice)
+4. Verifies integrity with SHA256 checksums (with progress reporting)
 5. Updates Radarr automatically with new paths
+6. Finds and manages leftover files not tracked by Radarr
+7. Re-copies missing files from SSD to HDD
+8. Emergency queue clearing for stuck operations
 
 ## Technical Architecture
 
@@ -40,19 +43,26 @@ A single-page web application that:
 ## Key Features
 
 ### 1. Safe File Copying
-- Uses `ionice -c3` (idle I/O priority)
+- Uses `rsync` for reliable file transfer
+- Uses `ionice -c3` (idle I/O priority - only copies when disk is idle)
 - Uses `nice -n19` (lowest CPU priority)
+- Automatic permission setting: `--chmod=D0755,F0644`
+  - Directories: `0755` (rwxr-xr-x) - readable by all, writable by owner
+  - Files: `0644` (rw-r--r--) - readable by all, writable by owner
 - Minimizes impact on system performance
-- Preserves file attributes with `cp -p`
+- Progress reporting during copy
 
 ### 2. Integrity Verification
 - SHA256 checksum before and after copy
+- Progress reporting during verification (10% increments)
 - Automatic cleanup of corrupted copies
 - Prevents data loss
+- Large file optimization (8MB chunks)
 
 ### 3. Radarr Integration
 - Fetches movie list via API v3
 - Filters by root folder path
+- Auto-detects SSD/HDD root folders
 - Updates movie paths after successful copy
 - Triggers rescan for metadata refresh
 
@@ -61,27 +71,43 @@ A single-page web application that:
 - Status tracking: pending → copying → verifying → updating → completed
 - Persistent queue survives restarts
 - Remove pending items before processing
+- Automatic removal of completed items
+- Emergency queue clear for stuck operations
 
-### 5. User Interface
+### 5. Leftover File Management
+- Scans SSD for files not in Radarr
+- Identifies movies on HDD with missing files
+- Delete unwanted leftover files
+- Re-copy missing files from SSD to HDD
+- Size and file count reporting
+
+### 6. User Interface
 - Mobile-optimized (works on phones/tablets)
-- Three sections: Movies, Queue, Settings
-- Real-time status updates
+- Four sections: Movies, Queue, Leftovers, Settings
+- Real-time status updates (auto-refresh every 2s)
 - One-click operations
+- Emergency controls
 
 ## API Endpoints
 
 ### Configuration
-- `GET /api/config` - Get current settings
+- `GET /api/config` - Get current settings (API key masked)
 - `POST /api/config` - Save settings and auto-detect root folders
 
 ### Radarr Integration
-- `GET /api/rootfolders` - List available root folders
-- `GET /api/movies` - List movies on SSD
+- `GET /api/rootfolders` - List available root folders from Radarr
+- `GET /api/movies` - List movies on SSD root folder
 
 ### Queue Management
-- `GET /api/queue` - Get current queue
+- `GET /api/queue` - Get current queue with status
 - `POST /api/queue` - Add movie to queue
-- `DELETE /api/queue/<id>` - Remove from queue
+- `DELETE /api/queue/<id>` - Remove pending item from queue
+- `POST /api/queue/clear` - Emergency clear entire queue
+
+### Leftover Files
+- `GET /api/leftovers` - Find files on SSD not in Radarr
+- `DELETE /api/leftovers` - Delete leftover directory
+- `POST /api/leftovers/recopy` - Re-add movie to queue for copying
 
 ## Data Flow
 
@@ -97,13 +123,33 @@ User Action → API Request → Backend Processing → Radarr API → File Syste
 
 ## Copy Process Flow
 
-1. **Queue Addition**: User adds movie to queue
-2. **Queue Processing**: Background thread picks up item
-3. **File Copy**: Copy with ionice/nice to minimize impact
-4. **Verification**: Calculate and compare SHA256 checksums
-5. **Radarr Update**: Update movie path via API
-6. **Rescan**: Trigger Radarr to rescan movie
-7. **Completion**: Mark as completed, auto-remove after 5s
+1. **Queue Addition**: User adds movie to queue (status: pending)
+2. **Queue Processing**: Background thread picks up first item
+3. **File Copy**:
+   - Status: copying
+   - Uses rsync with ionice/nice for minimal impact
+   - Reports progress in real-time
+   - Sets permissions automatically (D0755, F0644)
+4. **Verification**:
+   - Status: verifying
+   - Calculate SHA256 of source file (with progress)
+   - Calculate SHA256 of destination file (with progress)
+   - Compare checksums
+   - Delete destination if mismatch
+5. **Radarr Update**:
+   - Status: updating
+   - Update movie path via PUT /api/v3/movie/{id}
+   - Trigger RescanMovie command
+6. **Completion**:
+   - Status: completed
+   - Remove from queue immediately
+   - Log success
+
+### Error Handling
+- **Copy failure**: Mark as failed, keep in queue, log error
+- **Checksum mismatch**: Delete corrupted file, mark as failed
+- **Radarr API error**: Mark as failed, keep in queue
+- **Any exception**: Mark as failed, log full traceback
 
 ## Configuration
 
@@ -142,14 +188,21 @@ docker compose up -d
 ### Design Assumptions
 - Deployed in trusted home network
 - No authentication required
-- API key stored locally
+- API key stored locally in JSON file
 - Not exposed to internet
 
 ### Recommendations
-- Keep port 9696 internal only
+- Keep port 6970 internal only
 - Use firewall rules if needed
 - Regular backups of data directory
 - Monitor disk space on both drives
+- Leftover file deletion is permanent (no recycle bin)
+
+### File Permissions
+- Directories: `0755` (rwxr-xr-x)
+- Files: `0644` (rw-r--r--)
+- Owner can read/write, others can only read
+- Suitable for multi-user home media servers
 
 ## Performance Characteristics
 
@@ -157,13 +210,20 @@ docker compose up -d
 - Limited by disk I/O (intentionally)
 - ionice idle class: only copies when disk is idle
 - nice -n19: lowest CPU priority
-- Minimal impact on other services
+- rsync streaming: efficient for large files
+- Minimal impact on other services (Plex, Radarr, etc.)
 
 ### Resource Usage
-- Low CPU (single-threaded copy)
-- Low memory (streaming copy)
-- Network: Only Radarr API calls
+- Low CPU (single-threaded copy, lowest priority)
+- Low memory (streaming copy with 8MB chunks)
+- Network: Only Radarr API calls (minimal)
 - Disk: One active copy at a time
+- Background thread: daemon mode, auto-starts with Gunicorn
+
+### Checksum Performance
+- 8MB chunks for faster processing
+- Progress reporting every 10%
+- Optimized for large video files (10-50GB)
 
 ## Error Handling
 
@@ -182,16 +242,44 @@ docker compose up -d
 - Failed items remain in queue
 - Manual retry by removing and re-adding
 
+## Implemented Features (Latest)
+
+### v1.0 - Core Functionality
+- Basic copy queue with rsync
+- SHA256 verification
+- Radarr API integration
+- Mobile-first UI
+
+### v1.1 - Enhanced Reliability
+- Fixed infinite loop bug in queue processor
+- Added proper sleep intervals
+- Improved logging with Python logging module
+- Thread initialization for Gunicorn compatibility
+
+### v1.2 - Leftover Management
+- Find files on SSD not in Radarr
+- Detect missing HDD files
+- Delete leftover files
+- Re-copy missing files
+
+### v1.3 - Emergency Controls & Permissions
+- Emergency queue clear button
+- Automatic file permissions (0755/0644)
+- Fixed re-copy using wrong paths
+- Enhanced error handling
+
 ## Future Enhancements (Not Implemented)
 
 Potential improvements:
 - Automatic cleanup of source files after successful copy
 - Batch operations (select multiple movies)
-- Progress bars for large files
-- Email notifications on completion
+- Detailed progress bars with ETA
+- Email/webhook notifications on completion
 - Scheduled automatic transfers
 - Bandwidth limiting options
-- Support for other *arr applications (Sonarr, etc.)
+- Support for other *arr applications (Sonarr, Lidarr, etc.)
+- Pause/resume functionality
+- Copy history and statistics
 
 ## Development Notes
 
