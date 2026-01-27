@@ -6,10 +6,19 @@ import shutil
 import hashlib
 import subprocess
 import threading
+import time
+import logging
 from pathlib import Path
 from datetime import datetime
 
 app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Configuration file path
 CONFIG_FILE = 'data/config.json'
@@ -111,7 +120,7 @@ def copy_file_with_nice(src, dst, progress_callback=None):
         line = line.strip()
         if line:
             # Log progress
-            app.logger.info(f"Copy progress: {line}")
+            logger.info(f"Copy progress: {line}")
             if progress_callback:
                 progress_callback(line)
     
@@ -128,7 +137,7 @@ def process_copy_queue():
     """Background thread to process copy queue"""
     global current_copy, copy_queue
     
-    import time
+    logger.info("Copy queue processor started")
     
     while True:
         # Check if there's work to do
@@ -184,9 +193,9 @@ def process_copy_queue():
                     save_queue()
             
             # Copy file with nice/ionice and progress tracking
-            app.logger.info(f"Starting copy: {src_path} -> {dst_path}")
+            logger.info(f"Starting copy: {src_path} -> {dst_path}")
             copy_file_with_nice(src_path, dst_path, progress_callback=update_progress)
-            app.logger.info(f"Copy completed: {dst_path}")
+            logger.info(f"Copy completed: {dst_path}")
             
             # Update status
             with copy_lock:
@@ -248,6 +257,7 @@ def process_copy_queue():
                 current_copy = None
                 
         except Exception as e:
+            logger.error(f"Error processing queue item: {str(e)}", exc_info=True)
             with copy_lock:
                 if current_copy:
                     current_copy['status'] = 'failed'
@@ -414,12 +424,17 @@ def remove_from_queue(item_id):
     
     return jsonify({'success': True})
 
-if __name__ == '__main__':
-    # Load queue on startup
+# Initialize queue processor on module load (works with Gunicorn)
+def init_queue_processor():
+    """Initialize the copy queue processor"""
+    logger.info("Initializing copy queue processor...")
     load_queue()
-    
-    # Start copy queue processor
     copy_thread = threading.Thread(target=process_copy_queue, daemon=True)
     copy_thread.start()
-    
+    logger.info("Copy queue processor initialized")
+
+# Start processor when module is loaded
+init_queue_processor()
+
+if __name__ == '__main__':
     app.run(host='0.0.0.0', port=6970, debug=False)
