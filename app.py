@@ -602,11 +602,22 @@ def recopy_leftover():
     try:
         data = request.json
         movie_id = data.get('movie_id')
+        ssd_path = data.get('ssd_path')
         
-        if not movie_id:
-            return jsonify({'error': 'No movie_id provided'}), 400
+        if not movie_id or not ssd_path:
+            return jsonify({'error': 'movie_id and ssd_path required'}), 400
         
         config = load_config()
+        ssd_root = config.get('ssd_root_folder')
+        
+        # Security check
+        if not ssd_root or not ssd_path.startswith(ssd_root):
+            return jsonify({'error': 'Invalid SSD path'}), 400
+        
+        # Check if SSD path exists
+        if not os.path.exists(ssd_path):
+            return jsonify({'error': 'SSD path does not exist'}), 404
+        
         radarr_url = get_radarr_url(config)
         headers = get_radarr_headers(config)
         
@@ -614,6 +625,32 @@ def recopy_leftover():
         response = requests.get(f"{radarr_url}/movie/{movie_id}", headers=headers)
         response.raise_for_status()
         movie = response.json()
+        
+        # Find the movie file on SSD
+        movie_file = None
+        for dirpath, dirnames, filenames in os.walk(ssd_path):
+            for filename in filenames:
+                # Look for video files
+                if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.m4v', '.mov')):
+                    filepath = os.path.join(dirpath, filename)
+                    file_size = os.path.getsize(filepath)
+                    
+                    # Create a movieFile object
+                    movie_file = {
+                        'path': filepath,
+                        'size': file_size,
+                        'quality': movie.get('movieFile', {}).get('quality', {}),
+                    }
+                    break
+            if movie_file:
+                break
+        
+        if not movie_file:
+            return jsonify({'error': 'No video file found in SSD directory'}), 404
+        
+        # Update movie object with SSD file info
+        movie['movieFile'] = movie_file
+        movie['hasFile'] = True
         
         # Add to queue
         global copy_queue
@@ -634,11 +671,30 @@ def recopy_leftover():
             copy_queue.append(queue_item)
             save_queue()
         
-        logger.info(f"Re-added movie {movie['title']} to copy queue")
+        logger.info(f"Re-added movie {movie['title']} to copy queue from {ssd_path}")
         return jsonify({'success': True, 'message': f'Added {movie["title"]} to queue'})
         
     except Exception as e:
         logger.error(f"Error re-copying leftover: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/queue/clear', methods=['POST'])
+def clear_queue():
+    """Force clear the entire queue"""
+    global copy_queue, current_copy
+    
+    try:
+        with copy_lock:
+            queue_count = len(copy_queue)
+            copy_queue = []
+            current_copy = None
+            save_queue()
+        
+        logger.warning(f"Queue forcefully cleared. Removed {queue_count} items.")
+        return jsonify({'success': True, 'message': f'Cleared {queue_count} items from queue'})
+        
+    except Exception as e:
+        logger.error(f"Error clearing queue: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 400
 
 # Initialize queue processor on module load (works with Gunicorn)

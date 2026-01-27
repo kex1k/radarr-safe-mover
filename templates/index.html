@@ -312,6 +312,19 @@
                 <button type="submit">💾 Save Settings</button>
             </form>
         </div>
+
+        <!-- Emergency Controls Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>🚨 Emergency Controls</span>
+            </div>
+            <button onclick="clearQueue()" class="danger">
+                🗑️ Force Clear Queue
+            </button>
+            <p style="font-size: 0.85em; color: #888; margin-top: 10px; text-align: center;">
+                Use this to forcefully clear all items from the queue, including currently processing items.
+            </p>
+        </div>
     </div>
 
     <script>
@@ -356,7 +369,7 @@
                 if (leftover.can_recopy) {
                     buttons = `
                         <button
-                            onclick="recopyLeftover(${leftover.movie_id}, '${leftover.name.replace(/'/g, "\\'")}')"
+                            onclick="recopyLeftover(${leftover.movie_id}, '${leftover.name.replace(/'/g, "\\'")}', '${leftover.path.replace(/'/g, "\\'")}' )"
                             class="secondary"
                             style="flex: 1;"
                         >
@@ -402,7 +415,7 @@
         }
 
         // Re-copy leftover to queue
-        async function recopyLeftover(movieId, name) {
+        async function recopyLeftover(movieId, name, ssdPath) {
             if (!confirm(`Re-copy "${name}" from SSD to HDD?\n\nThis will add the movie to the copy queue.`)) {
                 return;
             }
@@ -411,7 +424,10 @@
                 const response = await fetch('/api/leftovers/recopy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ movie_id: movieId })
+                    body: JSON.stringify({
+                        movie_id: movieId,
+                        ssd_path: ssdPath
+                    })
                 });
                 
                 if (!response.ok) {
@@ -666,6 +682,31 @@
                 alert(`Error: ${error.message}`);
             }
         }
+        // Force clear entire queue
+        async function clearQueue() {
+            if (!confirm('⚠️ WARNING: This will forcefully clear ALL items from the queue, including any currently processing items.\n\nThis action cannot be undone!\n\nAre you sure?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/queue/clear', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to clear queue');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+                await refreshQueue();
+                renderMovies();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
 
         // Auto-refresh queue every 2 seconds
         setInterval(refreshQueue, 2000);
