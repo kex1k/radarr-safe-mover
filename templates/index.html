@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radarr Safe Mover</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 0;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 10px;
+        }
+
+        h1 {
+            text-align: center;
+            padding: 15px 0;
+            background: #2a2a2a;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+        }
+
+        .section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .section-title {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            color: #4CAF50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #2196F3;
+        }
+
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+
+        button.danger {
+            background: #f44336;
+        }
+
+        button.danger:hover {
+            background: #da190b;
+        }
+
+        .movie-item, .queue-item {
+            background: #333;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .movie-info, .queue-info {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .movie-title, .queue-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .movie-details, .queue-details {
+            font-size: 0.9em;
+            color: #aaa;
+        }
+
+        .movie-actions, .queue-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .movie-actions button, .queue-actions button {
+            flex: 1;
+            margin: 0;
+        }
+
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+            display: inline-block;
+            margin-top: 5px;
+        }
+
+        .status.pending {
+            background: #FFA726;
+            color: #000;
+        }
+
+        .status.copying {
+            background: #42A5F5;
+            color: #fff;
+        }
+
+        .status.verifying {
+            background: #AB47BC;
+            color: #fff;
+        }
+
+        .status.updating {
+            background: #26C6DA;
+            color: #000;
+        }
+
+        .status.completed {
+            background: #66BB6A;
+            color: #000;
+        }
+
+        .status.failed {
+            background: #EF5350;
+            color: #fff;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+
+        .settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        input, select {
+            padding: 10px;
+            border: 1px solid #444;
+            border-radius: 5px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .error {
+            background: #f44336;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        .success {
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .progress-text {
+            font-size: 0.85em;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                max-width: 800px;
+                padding: 20px;
+            }
+
+            .movie-actions, .queue-actions {
+                width: auto;
+                margin-top: 0;
+            }
+
+            .movie-actions button, .queue-actions button {
+                width: auto;
+                flex: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 Radarr Safe Mover</h1>
+    
+    <div class="container">
+        <!-- Movies Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>📁 Movies on SSD</span>
+                <button onclick="refreshMovies()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+            </div>
+            <div id="movies-container">
+                <div class="loading">Loading movies...</div>
+            </div>
+        </div>
+
+        <!-- Queue Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>📋 Copy Queue</span>
+            </div>
+            <div id="queue-container">
+                <div class="empty-state">No items in queue</div>
+            </div>
+        </div>
+
+        <!-- Settings Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>⚙️ Settings</span>
+            </div>
+            <div id="settings-message"></div>
+            <form class="settings-form" onsubmit="saveSettings(event)">
+                <div class="form-group">
+                    <label>Radarr Host:</label>
+                    <input type="text" id="radarr_host" placeholder="192.168.1.100" required>
+                </div>
+                <div class="form-group">
+                    <label>Radarr Port:</label>
+                    <input type="text" id="radarr_port" placeholder="7878" required>
+                </div>
+                <div class="form-group">
+                    <label>Radarr API Key:</label>
+                    <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
+                </div>
+                <div class="form-group">
+                    <label>SSD Root Folder:</label>
+                    <select id="ssd_root_folder" required>
+                        <option value="">Select SSD folder...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>HDD Root Folder:</label>
+                    <select id="hdd_root_folder" required>
+                        <option value="">Select HDD folder...</option>
+                    </select>
+                </div>
+                <button type="submit">💾 Save Settings</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let movies = [];
+        let queue = [];
+        let rootFolders = [];
+
+        // Load configuration on page load
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                
+                document.getElementById('radarr_host').value = config.radarr_host || '';
+                document.getElementById('radarr_port').value = config.radarr_port || '';
+                document.getElementById('radarr_api_key').value = config.radarr_api_key || '';
+                
+                // Load root folders if config is set
+                if (config.radarr_host && config.radarr_port && config.radarr_api_key) {
+                    await loadRootFolders();
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+
+        // Load root folders from Radarr
+        async function loadRootFolders() {
+            try {
+                const response = await fetch('/api/rootfolders');
+                if (!response.ok) throw new Error('Failed to load root folders');
+                
+                rootFolders = await response.json();
+                
+                const ssdSelect = document.getElementById('ssd_root_folder');
+                const hddSelect = document.getElementById('hdd_root_folder');
+                
+                ssdSelect.innerHTML = '<option value="">Select SSD folder...</option>';
+                hddSelect.innerHTML = '<option value="">Select HDD folder...</option>';
+                
+                rootFolders.forEach(rf => {
+                    const option = `<option value="${rf.id}">${rf.path}</option>`;
+                    ssdSelect.innerHTML += option;
+                    hddSelect.innerHTML += option;
+                });
+            } catch (error) {
+                console.error('Error loading root folders:', error);
+            }
+        }
+
+        // Save settings
+        async function saveSettings(event) {
+            event.preventDefault();
+            
+            const messageDiv = document.getElementById('settings-message');
+            messageDiv.innerHTML = '';
+            
+            const config = {
+                radarr_host: document.getElementById('radarr_host').value,
+                radarr_port: document.getElementById('radarr_port').value,
+                radarr_api_key: document.getElementById('radarr_api_key').value,
+                ssd_root_folder_id: parseInt(document.getElementById('ssd_root_folder').value),
+                hdd_root_folder_id: parseInt(document.getElementById('hdd_root_folder').value)
+            };
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully!</div>';
+                    await loadConfig();
+                    await refreshMovies();
+                } else {
+                    messageDiv.innerHTML = `<div class="error">❌ Error: ${result.error}</div>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        // Refresh movies list
+        async function refreshMovies() {
+            const container = document.getElementById('movies-container');
+            container.innerHTML = '<div class="loading">Loading movies...</div>';
+            
+            try {
+                const response = await fetch('/api/movies');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load movies');
+                }
+                
+                movies = await response.json();
+                renderMovies();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render movies list
+        function renderMovies() {
+            const container = document.getElementById('movies-container');
+            
+            if (movies.length === 0) {
+                container.innerHTML = '<div class="empty-state">No movies found on SSD</div>';
+                return;
+            }
+            
+            container.innerHTML = movies.map(movie => {
+                const movieFile = movie.movieFile || {};
+                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
+                const quality = movieFile.quality?.quality?.name || 'Unknown';
+                
+                const inQueue = queue.some(item => item.movie.id === movie.id);
+                
+                return `
+                    <div class="movie-item">
+                        <div class="movie-info">
+                            <div class="movie-title">${movie.title} (${movie.year})</div>
+                            <div class="movie-details">
+                                📦 ${size} | 🎥 ${quality}
+                            </div>
+                        </div>
+                        <div class="movie-actions">
+                            <button 
+                                onclick="addToQueue(${movie.id})" 
+                                ${inQueue ? 'disabled' : ''}
+                                class="secondary"
+                            >
+                                ${inQueue ? '✓ In Queue' : '➕ Add to Queue'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Add movie to queue
+        async function addToQueue(movieId) {
+            const movie = movies.find(m => m.id === movieId);
+            if (!movie) return;
+            
+            try {
+                const response = await fetch('/api/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ movie })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add to queue');
+                }
+                
+                await refreshQueue();
+                renderMovies();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Refresh queue
+        async function refreshQueue() {
+            try {
+                const response = await fetch('/api/queue');
+                queue = await response.json();
+                renderQueue();
+            } catch (error) {
+                console.error('Error refreshing queue:', error);
+            }
+        }
+
+        // Render queue
+        function renderQueue() {
+            const container = document.getElementById('queue-container');
+            
+            if (queue.length === 0) {
+                container.innerHTML = '<div class="empty-state">No items in queue</div>';
+                return;
+            }
+            
+            container.innerHTML = queue.map(item => {
+                const movie = item.movie;
+                const movieFile = movie.movieFile || {};
+                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
+                
+                return `
+                    <div class="queue-item">
+                        <div class="queue-info">
+                            <div class="queue-title">${movie.title} (${movie.year})</div>
+                            <div class="queue-details">📦 ${size}</div>
+                            <div class="status ${item.status}">${item.status.toUpperCase()}</div>
+                            <div class="progress-text">${item.progress}</div>
+                        </div>
+                        <div class="queue-actions">
+                            ${item.status === 'pending' ? `
+                                <button onclick="removeFromQueue('${item.id}')" class="danger">
+                                    🗑️ Remove
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Remove from queue
+        async function removeFromQueue(itemId) {
+            try {
+                const response = await fetch(`/api/queue/${itemId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to remove from queue');
+                }
+                
+                await refreshQueue();
+                renderMovies();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Auto-refresh queue every 2 seconds
+        setInterval(refreshQueue, 2000);
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadConfig();
+            await refreshQueue();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  radarr-safe-mover:
+    build: .
+    container_name: radarr-safe-mover
+    ports:
+      - "9696:9696"
+    volumes:
+      - ./data:/app/data
+      - /path/to/your/ssd/movies:/media/movies_ssd
+      - /path/to/your/hdd/movies:/media/movies_hdd
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    privileged: true
