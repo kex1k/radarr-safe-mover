@@ -51,7 +51,7 @@ docker compose up -d
 
 4. Откройте браузер и перейдите по адресу:
 ```
-http://localhost:9696
+http://localhost:6970
 ```
 
 ## Настройка
@@ -62,11 +62,13 @@ http://localhost:9696
    - **Radarr Host**: IP-адрес или hostname сервера Radarr (например, `192.168.1.100`)
    - **Radarr Port**: Порт Radarr (обычно `7878`)
    - **Radarr API Key**: API ключ из настроек Radarr (Settings → General → Security → API Key)
-   - **SSD Root Folder**: Выберите root folder с путем `/media/movies_ssd` (или ваш кастомный путь)
-   - **HDD Root Folder**: Выберите root folder с путем `/media/movies_hdd` (или ваш кастомный путь)
 4. Нажмите "Save Settings"
 
-**Важно:** Root folders в Radarr должны быть настроены с путями `/media/movies_ssd` и `/media/movies_hdd` (или соответствовать путям, указанным в compose файле).
+После сохранения настроек приложение автоматически определит root folders из Radarr:
+- **SSD Root Folder**: Автоматически определяется по пути содержащему `movies_ssd`
+- **HDD Root Folder**: Автоматически определяется по пути содержащему `movies_hdd`
+
+**Важно:** В Radarr должны быть настроены root folders с путями `/media/movies_ssd` и `/media/movies_hdd` (или соответствовать путям, указанным в docker-compose.yml).
 
 ## Использование
 
@@ -139,7 +141,7 @@ radarr-safe-mover/
 ## Безопасность
 
 Приложение предназначено для использования в домашней сети. Рекомендуется:
-- Не открывать порт 9696 в интернет
+- Не открывать порт 6970 в интернет
 - Использовать в защищенной локальной сети
 - Регулярно делать резервные копии данных
 

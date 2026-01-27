@@ -78,23 +78,49 @@ def calculate_checksum(filepath, algorithm='sha256'):
             hash_func.update(chunk)
     return hash_func.hexdigest()
 
-def copy_file_with_nice(src, dst):
-    """Copy file using ionice and nice for minimal system impact"""
+def copy_file_with_nice(src, dst, progress_callback=None):
+    """Copy file using rsync with ionice and nice for minimal system impact"""
     # Ensure destination directory exists
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     
-    # Use ionice (idle class) and nice (lowest priority)
+    # Use rsync with progress output
     # ionice -c3: idle class (only when no other process needs I/O)
     # nice -n19: lowest CPU priority
+    # rsync options:
+    #   -a: archive mode (preserves permissions, timestamps, etc.)
+    #   --info=progress2: show overall progress
+    #   --no-i-r: disable incremental recursion for better progress reporting
     cmd = [
         'ionice', '-c3',
         'nice', '-n19',
-        'cp', '-p', src, dst
+        'rsync', '-a', '--info=progress2', '--no-i-r',
+        src, dst
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Exception(f"Copy failed: {result.stderr}")
+    # Run rsync and capture output
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+    
+    # Read output line by line
+    for line in process.stdout:
+        line = line.strip()
+        if line:
+            # Log progress
+            app.logger.info(f"Copy progress: {line}")
+            if progress_callback:
+                progress_callback(line)
+    
+    # Wait for process to complete
+    process.wait()
+    
+    if process.returncode != 0:
+        stderr = process.stderr.read()
+        raise Exception(f"Copy failed: {stderr}")
     
     return dst
 
@@ -142,8 +168,16 @@ def process_copy_queue():
                 current_copy['progress'] = 'Copying file...'
                 save_queue()
             
-            # Copy file with nice/ionice
-            copy_file_with_nice(src_path, dst_path)
+            # Progress callback to update status
+            def update_progress(progress_line):
+                with copy_lock:
+                    current_copy['progress'] = f'Copying: {progress_line}'
+                    save_queue()
+            
+            # Copy file with nice/ionice and progress tracking
+            app.logger.info(f"Starting copy: {src_path} -> {dst_path}")
+            copy_file_with_nice(src_path, dst_path, progress_callback=update_progress)
+            app.logger.info(f"Copy completed: {dst_path}")
             
             # Update status
             with copy_lock:
@@ -249,7 +283,7 @@ def update_config():
     if 'radarr_api_key' in data and data['radarr_api_key'] != '***':
         config['radarr_api_key'] = data['radarr_api_key']
     
-    # Fetch root folders from Radarr
+    # Fetch root folders from Radarr and auto-detect SSD/HDD
     try:
         radarr_url = get_radarr_url(config)
         headers = get_radarr_headers(config)
@@ -258,21 +292,22 @@ def update_config():
         response.raise_for_status()
         root_folders = response.json()
         
-        # Find SSD and HDD root folders
-        if 'ssd_root_folder_id' in data:
-            for rf in root_folders:
-                if rf['id'] == data['ssd_root_folder_id']:
-                    config['ssd_root_folder'] = rf['path']
-                    break
-        
-        if 'hdd_root_folder_id' in data:
-            for rf in root_folders:
-                if rf['id'] == data['hdd_root_folder_id']:
-                    config['hdd_root_folder'] = rf['path']
-                    break
+        # Auto-detect SSD and HDD root folders based on path
+        # Look for /media/movies_ssd and /media/movies_hdd
+        for rf in root_folders:
+            path = rf['path']
+            if 'movies_ssd' in path.lower() or path.endswith('/media/movies_ssd'):
+                config['ssd_root_folder'] = path
+            elif 'movies_hdd' in path.lower() or path.endswith('/media/movies_hdd'):
+                config['hdd_root_folder'] = path
         
         save_config(config)
-        return jsonify({'success': True, 'root_folders': root_folders})
+        return jsonify({
+            'success': True,
+            'root_folders': root_folders,
+            'ssd_root_folder': config.get('ssd_root_folder', ''),
+            'hdd_root_folder': config.get('hdd_root_folder', '')
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -378,4 +413,4 @@ if __name__ == '__main__':
     copy_thread = threading.Thread(target=process_copy_queue, daemon=True)
     copy_thread.start()
     
-    app.run(host='0.0.0.0', port=9696, debug=False)
+    app.run(host='0.0.0.0', port=6970, debug=False)

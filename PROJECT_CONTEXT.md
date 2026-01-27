@@ -31,7 +31,7 @@ A single-page web application that:
 
 ### Infrastructure
 - **Container**: Docker (Compose v1 & v2 support)
-- **Port**: 9696 (HTTP)
+- **Port**: 6970 (HTTP)
 - **Volumes**:
   - `./data` → `/app/data` (config/queue)
   - SSD path → `/media/movies_ssd`
@@ -72,7 +72,7 @@ A single-page web application that:
 
 ### Configuration
 - `GET /api/config` - Get current settings
-- `POST /api/config` - Save settings and fetch root folders
+- `POST /api/config` - Save settings and auto-detect root folders
 
 ### Radarr Integration
 - `GET /api/rootfolders` - List available root folders
@@ -111,8 +111,10 @@ User Action → API Request → Backend Processing → Radarr API → File Syste
 - **Radarr Host**: IP or hostname of Radarr server
 - **Radarr Port**: Usually 7878
 - **Radarr API Key**: From Radarr Settings → General → Security
-- **SSD Root Folder**: Source location (e.g., `/media/movies_ssd`)
-- **HDD Root Folder**: Destination location (e.g., `/media/movies_hdd`)
+
+### Auto-Detected Settings
+- **SSD Root Folder**: Automatically detected from Radarr (path containing `movies_ssd`)
+- **HDD Root Folder**: Automatically detected from Radarr (path containing `movies_hdd`)
 
 ### Storage
 - `data/config.json`: User settings

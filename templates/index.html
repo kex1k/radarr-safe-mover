@@ -290,17 +290,13 @@
                     <label>Radarr API Key:</label>
                     <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
                 </div>
-                <div class="form-group">
-                    <label>SSD Root Folder:</label>
-                    <select id="ssd_root_folder" required>
-                        <option value="">Select SSD folder...</option>
-                    </select>
+                <div class="form-group" id="ssd-folder-group" style="display: none;">
+                    <label>SSD Root Folder (auto-detected):</label>
+                    <input type="text" id="ssd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
                 </div>
-                <div class="form-group">
-                    <label>HDD Root Folder:</label>
-                    <select id="hdd_root_folder" required>
-                        <option value="">Select HDD folder...</option>
-                    </select>
+                <div class="form-group" id="hdd-folder-group" style="display: none;">
+                    <label>HDD Root Folder (auto-detected):</label>
+                    <input type="text" id="hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
                 </div>
                 <button type="submit">💾 Save Settings</button>
             </form>
@@ -310,7 +306,6 @@
     <script>
         let movies = [];
         let queue = [];
-        let rootFolders = [];
 
         // Load configuration on page load
         async function loadConfig() {
@@ -322,36 +317,17 @@
                 document.getElementById('radarr_port').value = config.radarr_port || '';
                 document.getElementById('radarr_api_key').value = config.radarr_api_key || '';
                 
-                // Load root folders if config is set
-                if (config.radarr_host && config.radarr_port && config.radarr_api_key) {
-                    await loadRootFolders();
+                // Display root folders if they exist
+                if (config.ssd_root_folder) {
+                    document.getElementById('ssd_root_folder').value = config.ssd_root_folder;
+                    document.getElementById('ssd-folder-group').style.display = 'flex';
+                }
+                if (config.hdd_root_folder) {
+                    document.getElementById('hdd_root_folder').value = config.hdd_root_folder;
+                    document.getElementById('hdd-folder-group').style.display = 'flex';
                 }
             } catch (error) {
                 console.error('Error loading config:', error);
-            }
-        }
-
-        // Load root folders from Radarr
-        async function loadRootFolders() {
-            try {
-                const response = await fetch('/api/rootfolders');
-                if (!response.ok) throw new Error('Failed to load root folders');
-                
-                rootFolders = await response.json();
-                
-                const ssdSelect = document.getElementById('ssd_root_folder');
-                const hddSelect = document.getElementById('hdd_root_folder');
-                
-                ssdSelect.innerHTML = '<option value="">Select SSD folder...</option>';
-                hddSelect.innerHTML = '<option value="">Select HDD folder...</option>';
-                
-                rootFolders.forEach(rf => {
-                    const option = `<option value="${rf.id}">${rf.path}</option>`;
-                    ssdSelect.innerHTML += option;
-                    hddSelect.innerHTML += option;
-                });
-            } catch (error) {
-                console.error('Error loading root folders:', error);
             }
         }
 
@@ -365,9 +341,7 @@
             const config = {
                 radarr_host: document.getElementById('radarr_host').value,
                 radarr_port: document.getElementById('radarr_port').value,
-                radarr_api_key: document.getElementById('radarr_api_key').value,
-                ssd_root_folder_id: parseInt(document.getElementById('ssd_root_folder').value),
-                hdd_root_folder_id: parseInt(document.getElementById('hdd_root_folder').value)
+                radarr_api_key: document.getElementById('radarr_api_key').value
             };
             
             try {
@@ -380,7 +354,17 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully!</div>';
+                    // Display detected root folders
+                    if (result.ssd_root_folder) {
+                        document.getElementById('ssd_root_folder').value = result.ssd_root_folder;
+                        document.getElementById('ssd-folder-group').style.display = 'flex';
+                    }
+                    if (result.hdd_root_folder) {
+                        document.getElementById('hdd_root_folder').value = result.hdd_root_folder;
+                        document.getElementById('hdd-folder-group').style.display = 'flex';
+                    }
+                    
+                    messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully! Root folders auto-detected.</div>';
                     await loadConfig();
                     await refreshMovies();
                 } else {

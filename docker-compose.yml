@@ -5,7 +5,7 @@ services:
     build: .
     container_name: radarr-safe-mover
     ports:
-      - "9696:9696"
+      - "6970:6970"
     volumes:
       - ./data:/app/data
       - /path/to/your/ssd/movies:/media/movies_ssd
