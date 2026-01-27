@@ -79,13 +79,32 @@ def get_radarr_headers(config):
         'Content-Type': 'application/json'
     }
 
-def calculate_checksum(filepath, algorithm='sha256'):
-    """Calculate file checksum"""
+def calculate_checksum(filepath, algorithm='sha256', progress_callback=None):
+    """Calculate file checksum with progress reporting"""
     hash_func = hashlib.new(algorithm)
+    file_size = os.path.getsize(filepath)
+    bytes_read = 0
+    chunk_size = 8192 * 1024  # 8MB chunks for faster processing
+    
+    logger.info(f"Calculating {algorithm} checksum for {filepath} ({file_size / 1024 / 1024 / 1024:.2f} GB)")
+    
     with open(filepath, 'rb') as f:
-        for chunk in iter(lambda: f.read(8192), b''):
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
             hash_func.update(chunk)
-    return hash_func.hexdigest()
+            bytes_read += len(chunk)
+            
+            # Report progress every 10%
+            if progress_callback and file_size > 0:
+                progress = (bytes_read / file_size) * 100
+                if int(progress) % 10 == 0:
+                    progress_callback(f"{progress:.0f}%")
+    
+    checksum = hash_func.hexdigest()
+    logger.info(f"Checksum calculated: {checksum}")
+    return checksum
 
 def copy_file_with_nice(src, dst, progress_callback=None):
     """Copy file using rsync with ionice and nice for minimal system impact"""
@@ -203,14 +222,33 @@ def process_copy_queue():
                 current_copy['progress'] = 'Verifying checksum...'
                 save_queue()
             
-            # Verify checksum
-            src_checksum = calculate_checksum(src_path)
-            dst_checksum = calculate_checksum(dst_path)
+            # Verify checksum with progress
+            logger.info("Starting checksum verification...")
+            
+            def update_verify_progress(progress):
+                with copy_lock:
+                    current_copy['progress'] = f'Verifying source: {progress}'
+                    save_queue()
+            
+            src_checksum = calculate_checksum(src_path, progress_callback=update_verify_progress)
+            
+            def update_verify_progress_dst(progress):
+                with copy_lock:
+                    current_copy['progress'] = f'Verifying destination: {progress}'
+                    save_queue()
+            
+            dst_checksum = calculate_checksum(dst_path, progress_callback=update_verify_progress_dst)
+            
+            logger.info(f"Source checksum: {src_checksum}")
+            logger.info(f"Destination checksum: {dst_checksum}")
             
             if src_checksum != dst_checksum:
+                logger.error("Checksum mismatch! Removing corrupted file.")
                 # Remove corrupted file
                 os.remove(dst_path)
                 raise Exception("Checksum verification failed")
+            
+            logger.info("Checksum verification passed")
             
             # Update status
             with copy_lock:
@@ -220,22 +258,30 @@ def process_copy_queue():
             
             # Update movie in Radarr
             movie_id = movie['id']
-            movie['path'] = os.path.dirname(dst_path)
+            new_path = os.path.dirname(dst_path)
+            movie['path'] = new_path
             movie['rootFolderPath'] = hdd_root
+            
+            logger.info(f"Updating Radarr for movie ID {movie_id}")
+            logger.info(f"New path: {new_path}")
+            logger.info(f"New root folder: {hdd_root}")
             
             radarr_url = get_radarr_url(config)
             headers = get_radarr_headers(config)
             
             # Update movie
+            logger.info(f"Sending PUT request to {radarr_url}/movie/{movie_id}")
             response = requests.put(
                 f"{radarr_url}/movie/{movie_id}",
                 headers=headers,
                 json=movie
             )
             response.raise_for_status()
+            logger.info(f"Movie updated successfully in Radarr")
             
             # Trigger rescan
-            requests.post(
+            logger.info(f"Triggering rescan for movie ID {movie_id}")
+            rescan_response = requests.post(
                 f"{radarr_url}/command",
                 headers=headers,
                 json={
@@ -243,8 +289,11 @@ def process_copy_queue():
                     'movieId': movie_id
                 }
             )
+            rescan_response.raise_for_status()
+            logger.info("Rescan triggered successfully")
             
             # Mark as completed
+            logger.info(f"Successfully completed processing: {movie['title']}")
             with copy_lock:
                 current_copy['status'] = 'completed'
                 current_copy['progress'] = 'Completed successfully'
@@ -253,7 +302,8 @@ def process_copy_queue():
                 save_queue()
                 
                 # Remove from queue after a delay
-                threading.Timer(5.0, lambda: remove_completed_item(current_copy['id'])).start()
+                item_id = current_copy['id']
+                threading.Timer(5.0, lambda: remove_completed_item(item_id)).start()
                 current_copy = None
                 
         except Exception as e:
