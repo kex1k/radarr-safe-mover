@@ -1,0 +1,62 @@
+# Radarr Safe Mover - Windsurf Rules
+
+## Project Context
+A Flask web application for safely transferring movies between SSD and HDD storage with Radarr integration.
+
+## Technology Stack
+- **Backend**: Python 3.11 + Flask + Gunicorn
+- **Frontend**: Vanilla JS (no frameworks)
+- **Containerization**: Docker (Compose v1 & v2 support)
+- **API Integration**: Radarr API v3
+- **Storage**: JSON file-based persistence
+
+## Development Principles
+1. **Mobile-First**: All UI must work perfectly on mobile devices
+2. **Simplicity**: Single-page app, no complex build tools
+3. **Safety**: Use ionice/nice for disk I/O, verify checksums
+4. **Reliability**: Graceful error handling, persistent queue
+5. **Compatibility**: Support Docker Compose v1 and v2
+
+## Code Standards
+- Python: PEP 8 compliant, type hints preferred
+- JavaScript: ES6+, async/await for API calls
+- CSS: Mobile-first responsive design
+- Comments: Explain "why", not "what"
+
+## Key Components
+- **Copy Queue**: Background thread processing with status tracking
+- **Radarr Integration**: Full API v3 support for movies and root folders
+- **File Operations**: Safe copying with ionice -c3 and nice -n19
+- **Checksum Verification**: SHA256 validation after copy
+- **Settings Management**: Persistent JSON configuration
+
+## API Design
+- RESTful endpoints under `/api/`
+- JSON request/response format
+- Proper HTTP status codes
+- Error messages in `{error: "message"}` format
+
+## File Locations
+- `app.py`: Main Flask application (429 lines)
+- `templates/index.html`: Complete SPA frontend (545 lines)
+- `data/config.json`: User settings (auto-created)
+- `data/queue.json`: Copy queue state (auto-created)
+
+## Testing Considerations
+- Test with Docker Compose v1 and v2
+- Verify mobile responsiveness
+- Test large file transfers
+- Validate checksum verification
+- Ensure Radarr API compatibility
+
+## Deployment
+- Port 9696 (HTTP only)
+- Privileged container for ionice/nice
+- Two volume mounts: SSD and HDD paths
+- Single instance (no load balancing needed)
+
+## Security Model
+- Home network deployment only
+- No authentication (trusted network)
+- API key stored locally
+- No internet exposure recommended

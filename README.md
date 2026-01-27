@@ -14,16 +14,8 @@
 
 ## Требования
 
-Выберите один из вариантов:
-
-### Вариант 1: Docker
 - Docker
-- Docker Compose
-- Доступ к Radarr API
-
-### Вариант 2: Podman
-- Podman
-- podman-compose (установка: `pip install podman-compose`)
+- Docker Compose (v1 или v2)
 - Доступ к Radarr API
 
 ## Установка и запуск
@@ -34,17 +26,7 @@ git clone <repository-url>
 cd radarr-safe-mover
 ```
 
-2. Отредактируйте конфигурационный файл и укажите пути к вашим SSD и HDD папкам:
-
-**Для Docker** - отредактируйте `docker-compose.yml`:
-```yaml
-volumes:
-  - ./data:/app/data
-  - /path/to/your/ssd/movies:/media/movies_ssd  # Путь к SSD папке
-  - /path/to/your/hdd/movies:/media/movies_hdd  # Путь к HDD папке
-```
-
-**Для Podman** - отредактируйте `podman-compose.yml`:
+2. Отредактируйте `docker-compose.yml` и укажите пути к вашим SSD и HDD папкам:
 ```yaml
 volumes:
   - ./data:/app/data
@@ -56,22 +38,15 @@ volumes:
 
 3. Запустите приложение:
 
-**С Docker:**
 ```bash
-# Используя скрипт
+# Используя скрипт (автоматически определяет docker-compose v1 или v2)
 ./start.sh
 
-# Или вручную
+# Или вручную с docker-compose v1
 docker-compose up -d
-```
 
-**С Podman:**
-```bash
-# Используя скрипт
-./start-podman.sh
-
-# Или вручную
-podman-compose -f podman-compose.yml up -d
+# Или вручную с docker compose v2
+docker compose up -d
 ```
 
 4. Откройте браузер и перейдите по адресу:
@@ -143,11 +118,9 @@ radarr-safe-mover/
 ├── data/                 # Данные приложения (создается автоматически)
 │   ├── config.json       # Настройки
 │   └── queue.json        # Очередь копирования
-├── Dockerfile            # Docker/Podman образ
+├── Dockerfile            # Docker образ
 ├── docker-compose.yml    # Docker Compose конфигурация
-├── podman-compose.yml    # Podman Compose конфигурация
-├── start.sh              # Скрипт запуска для Docker
-├── start-podman.sh       # Скрипт запуска для Podman
+├── start.sh              # Скрипт запуска (поддержка v1 и v2)
 ├── requirements.txt      # Python зависимости
 └── README.md            # Документация
 ```
@@ -194,41 +167,31 @@ radarr-safe-mover/
 
 Для просмотра логов используйте:
 
-**Docker:**
 ```bash
+# С docker-compose v1
 docker-compose logs -f radarr-safe-mover
-```
 
-**Podman:**
-```bash
-podman-compose -f podman-compose.yml logs -f radarr-safe-mover
+# С docker compose v2
+docker compose logs -f radarr-safe-mover
 ```
 
 ## Остановка приложения
 
-**Docker:**
 ```bash
+# С docker-compose v1
 docker-compose down
+
+# С docker compose v2
+docker compose down
 ```
 
-**Podman:**
-```bash
-podman-compose -f podman-compose.yml down
-```
+## Совместимость Docker Compose
 
-## Podman Desktop
+Скрипт [`start.sh`](start.sh:1) автоматически определяет установленную версию Docker Compose:
+- **Docker Compose v1**: Использует команду `docker-compose`
+- **Docker Compose v2**: Использует команду `docker compose`
 
-Приложение полностью совместимо с Podman Desktop. После установки Podman Desktop вы можете:
-
-1. Импортировать проект через интерфейс Podman Desktop
-2. Использовать `podman-compose.yml` для управления контейнером
-3. Запускать и останавливать контейнер через графический интерфейс
-4. Просматривать логи и статус контейнера в реальном времени
-
-Для работы с Podman Desktop убедитесь, что установлен `podman-compose`:
-```bash
-pip install podman-compose
-```
+Обе версии полностью поддерживаются.
 
 ## Лицензия
 

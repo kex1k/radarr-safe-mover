@@ -1,0 +1,39 @@
+# AI Digest Ignore File
+# Files and directories to exclude from AI context
+
+# Data directories
+data/
+*.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+env/
+venv/
+ENV/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker/Podman volumes
+volumes/
