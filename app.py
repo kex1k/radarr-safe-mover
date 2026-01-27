@@ -108,20 +108,24 @@ def calculate_checksum(filepath, algorithm='sha256', progress_callback=None):
 
 def copy_file_with_nice(src, dst, progress_callback=None):
     """Copy file using rsync with ionice and nice for minimal system impact"""
-    # Ensure destination directory exists
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    # Ensure destination directory exists with proper permissions
+    dst_dir = os.path.dirname(dst)
+    os.makedirs(dst_dir, exist_ok=True)
+    # Set directory permissions to 0755 (rwxr-xr-x)
+    os.chmod(dst_dir, 0o755)
     
     # Use rsync with progress output
     # ionice -c3: idle class (only when no other process needs I/O)
     # nice -n19: lowest CPU priority
     # rsync options:
     #   -a: archive mode (preserves permissions, timestamps, etc.)
+    #   --chmod=D0755,F0644: set permissions (directories: rwxr-xr-x, files: rw-r--r--)
     #   --info=progress2: show overall progress
     #   --no-i-r: disable incremental recursion for better progress reporting
     cmd = [
         'ionice', '-c3',
         'nice', '-n19',
-        'rsync', '-a', '--info=progress2', '--no-i-r',
+        'rsync', '-a', '--chmod=D0755,F0644', '--info=progress2', '--no-i-r',
         src, dst
     ]
     
