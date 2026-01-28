@@ -12,7 +12,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy core and operations modules
+COPY core/ ./core/
+COPY operations/ ./operations/
+
+# Copy application files
+COPY app.py .
+COPY templates/ ./templates/
 
 EXPOSE 6970
 

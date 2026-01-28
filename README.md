@@ -131,35 +131,57 @@ http://localhost:6970
 
 ```
 radarr-safe-mover/
-├── app.py                 # Основное приложение Flask
+├── core/                      # Переиспользуемые модули
+│   ├── config.py             # Управление конфигурацией
+│   ├── radarr.py             # Клиент Radarr API
+│   └── queue.py              # Система очередей операций
+├── operations/                # Специфичные операции
+│   ├── copy_operation.py     # Копирование с проверкой
+│   └── leftovers.py          # Управление потерянными файлами
 ├── templates/
-│   └── index.html        # Веб-интерфейс
-├── data/                 # Данные приложения (создается автоматически)
-│   ├── config.json       # Настройки
-│   └── queue.json        # Очередь копирования
-├── Dockerfile            # Docker образ
-├── docker-compose.yml    # Docker Compose конфигурация
-├── start.sh              # Скрипт запуска (поддержка v1 и v2)
-├── requirements.txt      # Python зависимости
-└── README.md            # Документация
+│   └── index.html            # Веб-интерфейс
+├── data/                      # Данные приложения (создается автоматически)
+│   ├── config.json           # Настройки
+│   ├── queue.json            # Очередь операций
+│   └── history.json          # История операций
+├── app.py                     # Основное приложение Flask (модульное)
+├── Dockerfile                 # Docker образ
+├── docker-compose.yml         # Docker Compose конфигурация
+├── start.sh                   # Скрипт запуска
+├── requirements.txt           # Python зависимости
+├── README.md                  # Документация
+├── ARCHITECTURE.md            # Архитектура проекта
+└── FORK_GUIDE.md             # Гайд по созданию форка
 ```
+
+## Архитектура
+
+Проект построен с модульной архитектурой для легкого расширения и форка:
+
+- **Core модули** (`core/`) - переиспользуемая функциональность (Radarr API, очереди, конфигурация)
+- **Operations модули** (`operations/`) - специфичные операции (копирование, leftovers)
+
+Подробнее см. [`ARCHITECTURE.md`](ARCHITECTURE.md) и [`FORK_GUIDE.md`](FORK_GUIDE.md)
 
 ### API Endpoints
 
 #### Основные
 - `GET /` - Главная страница
-- `GET /api/config` - Получить настройки
+- `GET /api/config` - Получить настройки (API key замаскирован)
 - `POST /api/config` - Сохранить настройки и автоопределить root folders
 - `GET /api/rootfolders` - Получить список root folders из Radarr
 - `GET /api/movies` - Получить список фильмов на SSD
 
-#### Очередь копирования
-- `GET /api/queue` - Получить очередь копирования
+#### Очередь операций
+- `GET /api/queue` - Получить очередь операций
 - `POST /api/queue` - Добавить фильм в очередь
 - `DELETE /api/queue/<item_id>` - Удалить фильм из очереди
 - `POST /api/queue/clear` - Аварийная очистка всей очереди
 
-#### Потерянные файлы
+#### История операций
+- `GET /api/history` - Получить историю последних 5 операций
+
+#### Потерянные файлы (специфично для safe mover)
 - `GET /api/leftovers` - Найти файлы на SSD, не зарегистрированные в Radarr
 - `DELETE /api/leftovers` - Удалить потерянный файл/директорию
 - `POST /api/leftovers/recopy` - Повторно скопировать файл на HDD
@@ -239,6 +261,16 @@ docker-compose down
 # С docker compose v2
 docker compose down
 ```
+
+## Расширение и форк
+
+Проект спроектирован для легкого форка под другие операции с Radarr:
+
+1. **Сохраните** `core/` модули (Radarr API, очереди, конфигурация)
+2. **Замените** `operations/` на свою логику
+3. **Обновите** `app.py` для использования новой операции
+
+Подробная инструкция: [`FORK_GUIDE.md`](FORK_GUIDE.md)
 
 ## Совместимость Docker Compose
 

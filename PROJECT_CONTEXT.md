@@ -22,9 +22,10 @@ A single-page web application that:
 ### Backend (Flask)
 - **Framework**: Flask 3.0.0 with Gunicorn
 - **Language**: Python 3.11
+- **Architecture**: Modular (core + operations)
 - **Key Libraries**: requests (Radarr API), hashlib (checksums)
-- **Concurrency**: Threading for background copy queue
-- **Storage**: JSON files for config and queue state
+- **Concurrency**: Threading for background operation queue
+- **Storage**: JSON files for config, queue, and history
 
 ### Frontend (Vanilla JS)
 - **Style**: Mobile-first responsive design
@@ -36,9 +37,23 @@ A single-page web application that:
 - **Container**: Docker (Compose v1 & v2 support)
 - **Port**: 6970 (HTTP)
 - **Volumes**:
-  - `./data` → `/app/data` (config/queue)
+  - `./data` → `/app/data` (config/queue/history)
   - SSD path → `/media/movies_ssd`
   - HDD path → `/media/movies_hdd`
+
+### Project Structure
+```
+radarr-safe-mover/
+├── core/                    # Reusable modules
+│   ├── config.py           # Configuration management
+│   ├── radarr.py           # Radarr API client
+│   └── queue.py            # Generic operation queue
+├── operations/              # Operation-specific code
+│   ├── copy_operation.py   # Copy with verification
+│   └── leftovers.py        # Leftover files management
+├── app.py                   # Main Flask application
+└── templates/index.html     # Web UI
+```
 
 ## Key Features
 
