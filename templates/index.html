@@ -271,6 +271,16 @@
             </div>
         </div>
 
+        <!-- History Section -->
+        <div class="section">
+            <div class="section-title">
+                <span>📜 Recent Operations</span>
+            </div>
+            <div id="history-container">
+                <div class="empty-state">No operations yet</div>
+            </div>
+        </div>
+
         <!-- Leftovers Section -->
         <div class="section">
             <div class="section-title">
@@ -330,6 +340,7 @@
     <script>
         let movies = [];
         let queue = [];
+        let history = [];
         let leftovers = [];
 
         // Refresh leftovers list
@@ -630,6 +641,49 @@
             }
         }
 
+        // Refresh history
+        async function refreshHistory() {
+            try {
+                const response = await fetch('/api/history');
+                history = await response.json();
+                renderHistory();
+            } catch (error) {
+                console.error('Error refreshing history:', error);
+            }
+        }
+
+        // Render history
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            
+            if (history.length === 0) {
+                container.innerHTML = '<div class="empty-state">No operations yet</div>';
+                return;
+            }
+            
+            container.innerHTML = history.map(item => {
+                const icon = item.success ? '✅' : '❌';
+                const statusClass = item.success ? 'completed' : 'failed';
+                const statusText = item.success ? 'Success' : 'Failed';
+                const errorText = item.error ? ` - ${item.error}` : '';
+                
+                return `
+                    <div class="movie-item" style="padding: 8px 12px;">
+                        <div class="movie-info" style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2em;">${icon}</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: bold; font-size: 0.95em;">${item.movie_title}</div>
+                                <div style="font-size: 0.8em; color: #aaa;">
+                                    <span class="status ${statusClass}" style="padding: 2px 6px; font-size: 0.75em;">${statusText}</span>
+                                    ${errorText}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         // Render queue
         function renderQueue() {
             const container = document.getElementById('queue-container');
@@ -708,13 +762,17 @@
         }
 
 
-        // Auto-refresh queue every 2 seconds
-        setInterval(refreshQueue, 2000);
+        // Auto-refresh queue and history every 2 seconds
+        setInterval(() => {
+            refreshQueue();
+            refreshHistory();
+        }, 2000);
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
             await loadConfig();
             await refreshQueue();
+            await refreshHistory();
         });
     </script>
 </body>

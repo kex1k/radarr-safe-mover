@@ -23,9 +23,11 @@ logger = logging.getLogger(__name__)
 # Configuration file path
 CONFIG_FILE = 'data/config.json'
 QUEUE_FILE = 'data/queue.json'
+HISTORY_FILE = 'data/history.json'
 
 # Global state
 copy_queue = []
+copy_history = []
 current_copy = None
 copy_lock = threading.Lock()
 
@@ -67,6 +69,41 @@ def save_queue():
     ensure_data_dir()
     with open(QUEUE_FILE, 'w') as f:
         json.dump(copy_queue, f, indent=2)
+
+def load_history():
+    """Load copy history from file"""
+    global copy_history
+    ensure_data_dir()
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, 'r') as f:
+            copy_history = json.load(f)
+    return copy_history
+
+def save_history():
+    """Save copy history to file"""
+    ensure_data_dir()
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(copy_history, f, indent=2)
+
+def add_to_history(movie_title, success, error_message=None):
+    """Add operation to history (max 5 items)"""
+    global copy_history
+    
+    history_item = {
+        'movie_title': movie_title,
+        'success': success,
+        'timestamp': datetime.now().isoformat(),
+        'error': error_message if not success else None
+    }
+    
+    # Add to beginning of list (most recent first)
+    copy_history.insert(0, history_item)
+    
+    # Keep only last 5 items
+    copy_history = copy_history[:5]
+    
+    save_history()
+    logger.info(f"Added to history: {movie_title} - {'Success' if success else 'Failed'}")
 
 def get_radarr_url(config):
     """Build Radarr base URL"""
@@ -304,7 +341,10 @@ def process_copy_queue():
                 current_copy['completed_at'] = datetime.now().isoformat()
                 current_copy['dst_path'] = dst_path
                 
-                # Remove from queue immediately (not after delay)
+                # Add to history
+                add_to_history(movie['title'], success=True)
+                
+                # Remove from queue immediately
                 item_id = current_copy['id']
                 copy_queue = [item for item in copy_queue if item['id'] != item_id]
                 save_queue()
@@ -316,12 +356,22 @@ def process_copy_queue():
             logger.error(f"Error processing queue item: {str(e)}", exc_info=True)
             with copy_lock:
                 if current_copy:
+                    movie_title = current_copy['movie']['title']
+                    error_msg = str(e)
+                    
                     current_copy['status'] = 'failed'
-                    current_copy['progress'] = f'Error: {str(e)}'
+                    current_copy['progress'] = f'Error: {error_msg}'
                     current_copy['failed_at'] = datetime.now().isoformat()
                     
-                    # Keep failed items in queue for manual review
+                    # Add to history
+                    add_to_history(movie_title, success=False, error_message=error_msg)
+                    
+                    # Remove from queue immediately (one attempt only)
+                    item_id = current_copy['id']
+                    copy_queue = [item for item in copy_queue if item['id'] != item_id]
                     save_queue()
+                    
+                    logger.info(f"Removed failed item from queue. Remaining items: {len(copy_queue)}")
                     current_copy = None
 
 def remove_completed_item(item_id):
@@ -437,6 +487,11 @@ def get_movies():
 def get_queue():
     """Get current copy queue"""
     return jsonify(copy_queue)
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    """Get copy history (last 5 operations)"""
+    return jsonify(copy_history)
 
 @app.route('/api/queue', methods=['POST'])
 def add_to_queue():
@@ -706,6 +761,7 @@ def init_queue_processor():
     """Initialize the copy queue processor"""
     logger.info("Initializing copy queue processor...")
     load_queue()
+    load_history()
     copy_thread = threading.Thread(target=process_copy_queue, daemon=True)
     copy_thread.start()
     logger.info("Copy queue processor initialized")
