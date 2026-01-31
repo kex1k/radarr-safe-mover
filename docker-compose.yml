@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  radarr-safe-mover:
+  ultimate-radarr-toolbox:
     build: .
-    container_name: radarr-safe-mover
+    container_name: ultimate-radarr-toolbox
     ports:
       - "6970:6970"
     volumes:

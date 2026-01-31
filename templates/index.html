@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radarr Safe Mover</title>
+    <title>Ultimate Radarr Toolbox</title>
     <style>
         * {
             margin: 0;
@@ -31,6 +31,47 @@
             background: #2a2a2a;
             margin-bottom: 10px;
             font-size: 1.5em;
+        }
+
+        /* Tab Navigation */
+        .tabs {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            overflow-x: auto;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #888;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            background: #333;
+            color: #e0e0e0;
+        }
+
+        .tab.active {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .section {
@@ -86,6 +127,14 @@
             background: #da190b;
         }
 
+        button.warning {
+            background: #FF9800;
+        }
+
+        button.warning:hover {
+            background: #e68900;
+        }
+
         .movie-item, .queue-item {
             background: #333;
             padding: 12px;
@@ -138,7 +187,7 @@
             color: #000;
         }
 
-        .status.copying {
+        .status.copying, .status.processing {
             background: #42A5F5;
             color: #fff;
         }
@@ -161,6 +210,25 @@
         .status.failed {
             background: #EF5350;
             color: #fff;
+        }
+
+        .operation-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .operation-badge.copy {
+            background: #2196F3;
+            color: white;
+        }
+
+        .operation-badge.convert {
+            background: #FF9800;
+            color: white;
         }
 
         .empty-state {
@@ -230,7 +298,7 @@
 
         @media (min-width: 768px) {
             .container {
-                max-width: 800px;
+                max-width: 900px;
                 padding: 20px;
             }
 
@@ -247,31 +315,99 @@
     </style>
 </head>
 <body>
-    <h1>🎬 Radarr Safe Mover</h1>
+    <h1>🎬 Ultimate Radarr Toolbox</h1>
     
     <div class="container">
-        <!-- Movies Section -->
-        <div class="section">
-            <div class="section-title">
-                <span>📁 Movies on SSD</span>
-                <button onclick="refreshMovies()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('safe-copy')">📦 Safe Copy</button>
+            <button class="tab" onclick="switchTab('dts-converter')">🎵 DTS Converter</button>
+            <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
+        </div>
+
+        <!-- Safe Copy Tab -->
+        <div id="safe-copy" class="tab-content active">
+            <!-- Movies Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>📁 Movies on SSD</span>
+                    <button onclick="refreshMovies()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="movies-container">
+                    <div class="loading">Loading movies...</div>
+                </div>
             </div>
-            <div id="movies-container">
-                <div class="loading">Loading movies...</div>
+
+            <!-- Leftovers Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>🗑️ Leftover Files</span>
+                    <button onclick="refreshLeftovers()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="leftovers-container">
+                    <div class="empty-state">Click Refresh to scan for leftover files</div>
+                </div>
             </div>
         </div>
 
-        <!-- Queue Section -->
+        <!-- DTS Converter Tab -->
+        <div id="dts-converter" class="tab-content">
+            <!-- DTS Movies Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>🎵 Movies with DTS Audio</span>
+                    <button onclick="refreshDTSMovies()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="dts-movies-container">
+                    <div class="loading">Loading DTS movies...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    <span>⚙️ Radarr Configuration</span>
+                </div>
+                <div id="settings-message"></div>
+                <form class="settings-form" onsubmit="saveSettings(event)">
+                    <div class="form-group">
+                        <label>Radarr Host:</label>
+                        <input type="text" id="radarr_host" placeholder="192.168.1.100" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Radarr Port:</label>
+                        <input type="text" id="radarr_port" placeholder="7878" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Radarr API Key:</label>
+                        <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
+                    </div>
+                    <div class="form-group" id="ssd-folder-group" style="display: none;">
+                        <label>SSD Root Folder (auto-detected):</label>
+                        <input type="text" id="ssd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
+                    </div>
+                    <div class="form-group" id="hdd-folder-group" style="display: none;">
+                        <label>HDD Root Folder (auto-detected):</label>
+                        <input type="text" id="hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
+                    </div>
+                    <button type="submit">💾 Save Settings</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Unified Queue Section (shown on all tabs) -->
         <div class="section">
             <div class="section-title">
-                <span>📋 Copy Queue</span>
+                <span>📋 Unified Operation Queue</span>
             </div>
             <div id="queue-container">
                 <div class="empty-state">No items in queue</div>
             </div>
         </div>
 
-        <!-- History Section -->
+        <!-- Unified History Section (shown on all tabs) -->
         <div class="section">
             <div class="section-title">
                 <span>📜 Recent Operations</span>
@@ -279,48 +415,6 @@
             <div id="history-container">
                 <div class="empty-state">No operations yet</div>
             </div>
-        </div>
-
-        <!-- Leftovers Section -->
-        <div class="section">
-            <div class="section-title">
-                <span>🗑️ Leftover Files</span>
-                <button onclick="refreshLeftovers()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
-            </div>
-            <div id="leftovers-container">
-                <div class="empty-state">Click Refresh to scan for leftover files</div>
-            </div>
-        </div>
-
-        <!-- Settings Section -->
-        <div class="section">
-            <div class="section-title">
-                <span>⚙️ Settings</span>
-            </div>
-            <div id="settings-message"></div>
-            <form class="settings-form" onsubmit="saveSettings(event)">
-                <div class="form-group">
-                    <label>Radarr Host:</label>
-                    <input type="text" id="radarr_host" placeholder="192.168.1.100" required>
-                </div>
-                <div class="form-group">
-                    <label>Radarr Port:</label>
-                    <input type="text" id="radarr_port" placeholder="7878" required>
-                </div>
-                <div class="form-group">
-                    <label>Radarr API Key:</label>
-                    <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
-                </div>
-                <div class="form-group" id="ssd-folder-group" style="display: none;">
-                    <label>SSD Root Folder (auto-detected):</label>
-                    <input type="text" id="ssd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
-                </div>
-                <div class="form-group" id="hdd-folder-group" style="display: none;">
-                    <label>HDD Root Folder (auto-detected):</label>
-                    <input type="text" id="hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
-                </div>
-                <button type="submit">💾 Save Settings</button>
-            </form>
         </div>
 
         <!-- Emergency Controls Section -->
@@ -332,16 +426,100 @@
                 🗑️ Force Clear Queue
             </button>
             <p style="font-size: 0.85em; color: #888; margin-top: 10px; text-align: center;">
-                Use this to forcefully clear all items from the queue, including currently processing items.
+                Use this to forcefully clear all items from the unified queue, including currently processing items.
             </p>
         </div>
     </div>
 
     <script>
         let movies = [];
+        let dtsMovies = [];
         let queue = [];
         let history = [];
         let leftovers = [];
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // Load data for the tab
+            if (tabName === 'safe-copy') {
+                refreshMovies();
+            } else if (tabName === 'dts-converter') {
+                refreshDTSMovies();
+            }
+        }
+
+        // ============================================================================
+        // SAFE COPY TAB FUNCTIONS
+        // ============================================================================
+
+        // Refresh movies list
+        async function refreshMovies() {
+            const container = document.getElementById('movies-container');
+            container.innerHTML = '<div class="loading">Loading movies...</div>';
+            
+            try {
+                const response = await fetch('/api/movies');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load movies');
+                }
+                
+                movies = await response.json();
+                renderMovies();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render movies list
+        function renderMovies() {
+            const container = document.getElementById('movies-container');
+            
+            if (movies.length === 0) {
+                container.innerHTML = '<div class="empty-state">No movies found on SSD</div>';
+                return;
+            }
+            
+            container.innerHTML = movies.map(movie => {
+                const movieFile = movie.movieFile || {};
+                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
+                const quality = movieFile.quality?.quality?.name || 'Unknown';
+                
+                const inQueue = queue.some(item => item.movie.id === movie.id);
+                
+                return `
+                    <div class="movie-item">
+                        <div class="movie-info">
+                            <div class="movie-title">${movie.title} (${movie.year})</div>
+                            <div class="movie-details">
+                                📦 ${size} | 🎥 ${quality}
+                            </div>
+                        </div>
+                        <div class="movie-actions">
+                            <button 
+                                onclick="addToQueue(${movie.id}, 'copy')" 
+                                ${inQueue ? 'disabled' : ''}
+                                class="secondary"
+                            >
+                                ${inQueue ? '✓ In Queue' : '➕ Add to Queue'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
 
         // Refresh leftovers list
         async function refreshLeftovers() {
@@ -375,7 +553,6 @@
                 const size = (leftover.size / 1024 / 1024 / 1024).toFixed(2) + ' GB';
                 const fileCount = leftover.file_count;
                 
-                // Build buttons based on can_recopy flag
                 let buttons = '';
                 if (leftover.can_recopy) {
                     buttons = `
@@ -481,6 +658,255 @@
             }
         }
 
+        // ============================================================================
+        // DTS CONVERTER TAB FUNCTIONS
+        // ============================================================================
+
+        // Refresh DTS movies list
+        async function refreshDTSMovies() {
+            const container = document.getElementById('dts-movies-container');
+            container.innerHTML = '<div class="loading">Loading DTS movies...</div>';
+            
+            try {
+                const response = await fetch('/api/movies/dts');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load DTS movies');
+                }
+                
+                dtsMovies = await response.json();
+                renderDTSMovies();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render DTS movies list
+        function renderDTSMovies() {
+            const container = document.getElementById('dts-movies-container');
+            
+            if (dtsMovies.length === 0) {
+                container.innerHTML = '<div class="empty-state">No movies with DTS audio found</div>';
+                return;
+            }
+            
+            container.innerHTML = dtsMovies.map(movie => {
+                const movieFile = movie.movieFile || {};
+                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
+                const quality = movieFile.quality?.quality?.name || 'Unknown';
+                const relativePath = movieFile.relativePath || '';
+                
+                const inQueue = queue.some(item => item.movie.id === movie.id);
+                
+                return `
+                    <div class="movie-item">
+                        <div class="movie-info">
+                            <div class="movie-title">${movie.title} (${movie.year})</div>
+                            <div class="movie-details">
+                                📦 ${size} | 🎥 ${quality}
+                            </div>
+                            <div class="movie-details" style="font-size: 0.75em; color: #888; margin-top: 3px;">
+                                ${relativePath}
+                            </div>
+                        </div>
+                        <div class="movie-actions">
+                            <button 
+                                onclick="addToQueue(${movie.id}, 'convert')" 
+                                ${inQueue ? 'disabled' : ''}
+                                class="warning"
+                            >
+                                ${inQueue ? '✓ In Queue' : '🎵 Convert to FLAC'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ============================================================================
+        // UNIFIED QUEUE FUNCTIONS
+        // ============================================================================
+
+        // Add movie to unified queue
+        async function addToQueue(movieId, operationType) {
+            const movieList = operationType === 'copy' ? movies : dtsMovies;
+            const movie = movieList.find(m => m.id === movieId);
+            if (!movie) return;
+            
+            try {
+                const response = await fetch('/api/queue/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        movie: movie,
+                        operation_type: operationType
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add to queue');
+                }
+                
+                await refreshQueue();
+                if (operationType === 'copy') {
+                    renderMovies();
+                } else {
+                    renderDTSMovies();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Refresh unified queue
+        async function refreshQueue() {
+            try {
+                const response = await fetch('/api/queue');
+                queue = await response.json();
+                renderQueue();
+            } catch (error) {
+                console.error('Error refreshing queue:', error);
+            }
+        }
+
+        // Render unified queue
+        function renderQueue() {
+            const container = document.getElementById('queue-container');
+            
+            if (queue.length === 0) {
+                container.innerHTML = '<div class="empty-state">No items in queue</div>';
+                return;
+            }
+            
+            container.innerHTML = queue.map(item => {
+                const movie = item.movie;
+                const movieFile = movie.movieFile || {};
+                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
+                const operationType = item.operation_type || 'unknown';
+                const operationLabel = operationType === 'copy' ? 'Copy' : operationType === 'convert' ? 'Convert' : operationType;
+                
+                return `
+                    <div class="queue-item">
+                        <div class="queue-info">
+                            <div class="queue-title">
+                                ${movie.title} (${movie.year})
+                                <span class="operation-badge ${operationType}">${operationLabel}</span>
+                            </div>
+                            <div class="queue-details">📦 ${size}</div>
+                            <div class="status ${item.status}">${item.status.toUpperCase()}</div>
+                            <div class="progress-text">${item.progress}</div>
+                        </div>
+                        <div class="queue-actions">
+                            ${item.status === 'pending' ? `
+                                <button onclick="removeFromQueue('${item.id}')" class="danger">
+                                    🗑️ Remove
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Remove from unified queue
+        async function removeFromQueue(itemId) {
+            try {
+                const response = await fetch(`/api/queue/${itemId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to remove from queue');
+                }
+                
+                await refreshQueue();
+                renderMovies();
+                renderDTSMovies();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Force clear unified queue
+        async function clearQueue() {
+            if (!confirm('⚠️ WARNING: This will forcefully clear ALL items from the unified queue, including any currently processing items.\n\nThis action cannot be undone!\n\nAre you sure?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/queue/clear', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to clear queue');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+                await refreshQueue();
+                renderMovies();
+                renderDTSMovies();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Refresh unified history
+        async function refreshHistory() {
+            try {
+                const response = await fetch('/api/history');
+                history = await response.json();
+                renderHistory();
+            } catch (error) {
+                console.error('Error refreshing history:', error);
+            }
+        }
+
+        // Render unified history
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            
+            if (history.length === 0) {
+                container.innerHTML = '<div class="empty-state">No operations yet</div>';
+                return;
+            }
+            
+            container.innerHTML = history.map(item => {
+                const icon = item.success ? '✅' : '❌';
+                const statusClass = item.success ? 'completed' : 'failed';
+                const statusText = item.success ? 'Success' : 'Failed';
+                const errorText = item.error ? ` - ${item.error}` : '';
+                const operationType = item.operation_type || 'unknown';
+                const operationLabel = operationType === 'copy' ? 'Copy' : operationType === 'convert' ? 'Convert' : operationType;
+                
+                return `
+                    <div class="movie-item" style="padding: 8px 12px;">
+                        <div class="movie-info" style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2em;">${icon}</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: bold; font-size: 0.95em;">
+                                    ${item.movie_title}
+                                    <span class="operation-badge ${operationType}">${operationLabel}</span>
+                                </div>
+                                <div style="font-size: 0.8em; color: #aaa;">
+                                    <span class="status ${statusClass}" style="padding: 2px 6px; font-size: 0.75em;">${statusText}</span>
+                                    ${errorText}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ============================================================================
+        // SETTINGS TAB FUNCTIONS
+        // ============================================================================
+
         // Load configuration on page load
         async function loadConfig() {
             try {
@@ -540,7 +966,6 @@
                     
                     messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully! Root folders auto-detected.</div>';
                     await loadConfig();
-                    await refreshMovies();
                 } else {
                     messageDiv.innerHTML = `<div class="error">❌ Error: ${result.error}</div>`;
                 }
@@ -549,218 +974,9 @@
             }
         }
 
-        // Refresh movies list
-        async function refreshMovies() {
-            const container = document.getElementById('movies-container');
-            container.innerHTML = '<div class="loading">Loading movies...</div>';
-            
-            try {
-                const response = await fetch('/api/movies');
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to load movies');
-                }
-                
-                movies = await response.json();
-                renderMovies();
-            } catch (error) {
-                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Render movies list
-        function renderMovies() {
-            const container = document.getElementById('movies-container');
-            
-            if (movies.length === 0) {
-                container.innerHTML = '<div class="empty-state">No movies found on SSD</div>';
-                return;
-            }
-            
-            container.innerHTML = movies.map(movie => {
-                const movieFile = movie.movieFile || {};
-                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
-                const quality = movieFile.quality?.quality?.name || 'Unknown';
-                
-                const inQueue = queue.some(item => item.movie.id === movie.id);
-                
-                return `
-                    <div class="movie-item">
-                        <div class="movie-info">
-                            <div class="movie-title">${movie.title} (${movie.year})</div>
-                            <div class="movie-details">
-                                📦 ${size} | 🎥 ${quality}
-                            </div>
-                        </div>
-                        <div class="movie-actions">
-                            <button 
-                                onclick="addToQueue(${movie.id})" 
-                                ${inQueue ? 'disabled' : ''}
-                                class="secondary"
-                            >
-                                ${inQueue ? '✓ In Queue' : '➕ Add to Queue'}
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Add movie to queue
-        async function addToQueue(movieId) {
-            const movie = movies.find(m => m.id === movieId);
-            if (!movie) return;
-            
-            try {
-                const response = await fetch('/api/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ movie })
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to add to queue');
-                }
-                
-                await refreshQueue();
-                renderMovies();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
-            }
-        }
-
-        // Refresh queue
-        async function refreshQueue() {
-            try {
-                const response = await fetch('/api/queue');
-                queue = await response.json();
-                renderQueue();
-            } catch (error) {
-                console.error('Error refreshing queue:', error);
-            }
-        }
-
-        // Refresh history
-        async function refreshHistory() {
-            try {
-                const response = await fetch('/api/history');
-                history = await response.json();
-                renderHistory();
-            } catch (error) {
-                console.error('Error refreshing history:', error);
-            }
-        }
-
-        // Render history
-        function renderHistory() {
-            const container = document.getElementById('history-container');
-            
-            if (history.length === 0) {
-                container.innerHTML = '<div class="empty-state">No operations yet</div>';
-                return;
-            }
-            
-            container.innerHTML = history.map(item => {
-                const icon = item.success ? '✅' : '❌';
-                const statusClass = item.success ? 'completed' : 'failed';
-                const statusText = item.success ? 'Success' : 'Failed';
-                const errorText = item.error ? ` - ${item.error}` : '';
-                
-                return `
-                    <div class="movie-item" style="padding: 8px 12px;">
-                        <div class="movie-info" style="display: flex; align-items: center; gap: 10px;">
-                            <span style="font-size: 1.2em;">${icon}</span>
-                            <div style="flex: 1;">
-                                <div style="font-weight: bold; font-size: 0.95em;">${item.movie_title}</div>
-                                <div style="font-size: 0.8em; color: #aaa;">
-                                    <span class="status ${statusClass}" style="padding: 2px 6px; font-size: 0.75em;">${statusText}</span>
-                                    ${errorText}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Render queue
-        function renderQueue() {
-            const container = document.getElementById('queue-container');
-            
-            if (queue.length === 0) {
-                container.innerHTML = '<div class="empty-state">No items in queue</div>';
-                return;
-            }
-            
-            container.innerHTML = queue.map(item => {
-                const movie = item.movie;
-                const movieFile = movie.movieFile || {};
-                const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
-                
-                return `
-                    <div class="queue-item">
-                        <div class="queue-info">
-                            <div class="queue-title">${movie.title} (${movie.year})</div>
-                            <div class="queue-details">📦 ${size}</div>
-                            <div class="status ${item.status}">${item.status.toUpperCase()}</div>
-                            <div class="progress-text">${item.progress}</div>
-                        </div>
-                        <div class="queue-actions">
-                            ${item.status === 'pending' ? `
-                                <button onclick="removeFromQueue('${item.id}')" class="danger">
-                                    🗑️ Remove
-                                </button>
-                            ` : ''}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Remove from queue
-        async function removeFromQueue(itemId) {
-            try {
-                const response = await fetch(`/api/queue/${itemId}`, {
-                    method: 'DELETE'
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to remove from queue');
-                }
-                
-                await refreshQueue();
-                renderMovies();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
-            }
-        }
-        // Force clear entire queue
-        async function clearQueue() {
-            if (!confirm('⚠️ WARNING: This will forcefully clear ALL items from the queue, including any currently processing items.\n\nThis action cannot be undone!\n\nAre you sure?')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/queue/clear', {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to clear queue');
-                }
-                
-                const result = await response.json();
-                alert(`✅ ${result.message}`);
-                await refreshQueue();
-                renderMovies();
-            } catch (error) {
-                alert(`❌ Error: ${error.message}`);
-            }
-        }
-
+        // ============================================================================
+        // AUTO-REFRESH AND INITIALIZATION
+        // ============================================================================
 
         // Auto-refresh queue and history every 2 seconds
         setInterval(() => {

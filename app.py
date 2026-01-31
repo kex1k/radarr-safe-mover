@@ -1,9 +1,10 @@
 """
-Radarr Safe Mover - Refactored version
+Ultimate Radarr Toolbox - Refactored version
 Main Flask application using modular architecture
 """
 from flask import Flask, render_template, jsonify, request
 import logging
+import re
 
 # Core modules
 from core.config import ConfigManager
@@ -12,6 +13,7 @@ from core.queue import OperationQueue
 
 # Operation-specific modules
 from operations.copy_operation import CopyOperationHandler
+from operations.convert_operation import ConvertOperationHandler
 from operations.leftovers import LeftoversManager
 
 # Configure logging
@@ -26,15 +28,23 @@ app = Flask(__name__)
 
 # Initialize core components
 config_manager = ConfigManager('data/config.json')
-operation_handler = CopyOperationHandler(config_manager)
-operation_queue = OperationQueue(
+
+# Initialize operation handlers
+copy_operation_handler = CopyOperationHandler(config_manager)
+convert_operation_handler = ConvertOperationHandler(config_manager)
+
+# Initialize unified queue with multiple operation handlers
+unified_queue = OperationQueue(
     queue_file='data/queue.json',
     history_file='data/history.json',
-    operation_handler=operation_handler
+    operation_handlers={
+        'copy': copy_operation_handler,
+        'convert': convert_operation_handler
+    }
 )
 
-# Start queue processor
-operation_queue.start_processor()
+# Start unified queue processor
+unified_queue.start_processor()
 
 
 def get_radarr_client():
@@ -140,27 +150,55 @@ def get_movies():
         return jsonify({'error': str(e)}), 400
 
 
+@app.route('/api/movies/dts', methods=['GET'])
+def get_dts_movies():
+    """Get movies with DTS audio from Radarr"""
+    try:
+        radarr = get_radarr_client()
+        all_movies = radarr.get_movies()
+        
+        # Filter movies with DTS in filename
+        dts_pattern = re.compile(r'dts', re.IGNORECASE)
+        dts_movies = []
+        
+        for movie in all_movies:
+            movie_file = movie.get('movieFile', {})
+            if movie_file:
+                relative_path = movie_file.get('relativePath', '')
+                if dts_pattern.search(relative_path):
+                    dts_movies.append(movie)
+        
+        return jsonify(dts_movies)
+    except Exception as e:
+        logger.error(f"Error getting DTS movies: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+
 # ============================================================================
 # ROUTES - Queue Management
 # ============================================================================
 
 @app.route('/api/queue', methods=['GET'])
 def get_queue():
-    """Get current operation queue"""
-    return jsonify(operation_queue.get_queue())
+    """Get current unified operation queue"""
+    return jsonify(unified_queue.get_queue())
 
 
-@app.route('/api/queue', methods=['POST'])
+@app.route('/api/queue/add', methods=['POST'])
 def add_to_queue():
-    """Add movie to operation queue"""
+    """Add movie to unified queue with operation type"""
     data = request.json
     movie = data.get('movie')
+    operation_type = data.get('operation_type')  # 'copy' or 'convert'
     
     if not movie:
         return jsonify({'error': 'No movie provided'}), 400
     
+    if not operation_type:
+        return jsonify({'error': 'No operation_type provided'}), 400
+    
     try:
-        operation_queue.add_to_queue(movie)
+        unified_queue.add_to_queue(movie, operation_type)
         return jsonify({'success': True})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -171,9 +209,9 @@ def add_to_queue():
 
 @app.route('/api/queue/<item_id>', methods=['DELETE'])
 def remove_from_queue(item_id):
-    """Remove item from queue"""
+    """Remove item from unified queue"""
     try:
-        operation_queue.remove_from_queue(item_id)
+        unified_queue.remove_from_queue(item_id)
         return jsonify({'success': True})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -184,9 +222,9 @@ def remove_from_queue(item_id):
 
 @app.route('/api/queue/clear', methods=['POST'])
 def clear_queue():
-    """Force clear entire queue"""
+    """Force clear entire unified queue"""
     try:
-        count = operation_queue.clear_queue()
+        count = unified_queue.clear_queue()
         return jsonify({
             'success': True,
             'message': f'Cleared {count} items from queue'
@@ -202,8 +240,8 @@ def clear_queue():
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
-    """Get operation history (last 5 operations)"""
-    return jsonify(operation_queue.get_history())
+    """Get unified operation history (last 10 operations)"""
+    return jsonify(unified_queue.get_history())
 
 
 # ============================================================================
@@ -264,8 +302,8 @@ def recopy_leftover():
         # Prepare movie for re-copying
         movie = leftovers_manager.prepare_recopy(movie_id, ssd_path)
         
-        # Add to queue
-        operation_queue.add_to_queue(movie)
+        # Add to unified queue with 'copy' operation type
+        unified_queue.add_to_queue(movie, 'copy')
         
         logger.info(f"Re-added movie {movie['title']} to copy queue from {ssd_path}")
         return jsonify({'success': True, 'message': f'Added {movie["title"]} to queue'})

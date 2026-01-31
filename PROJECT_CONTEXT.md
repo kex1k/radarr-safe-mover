@@ -1,21 +1,31 @@
-# Radarr Safe Mover - Project Context
+# Ultimate Radarr Toolbox - Project Context
 
 ## Overview
-A web-based tool for safely moving movies between SSD and HDD storage with full Radarr integration. Designed for home media server environments where you want to free up fast SSD storage by moving watched or less-accessed movies to slower HDD storage.
+Многофункциональное веб-приложение для автоматизации работы с Radarr. Включает два основных модуля:
+1. **Safe Copy** - безопасное перемещение фильмов между SSD и HDD с проверкой целостности
+2. **DTS Converter** - автоматическая конвертация DTS аудио в FLAC 7.1
 
 ## Problem Statement
-Media servers often use fast SSD storage for active content and slower HDD storage for archives. Manually moving files and updating Radarr is error-prone and time-consuming. This tool automates the process safely with verification.
+Медиа-серверы часто используют быстрое SSD хранилище для активного контента и медленное HDD для архивов. Также многие фильмы имеют DTS аудио, которое не все устройства могут воспроизводить. Ручное управление этими задачами отнимает время и чревато ошибками.
 
 ## Solution
-A single-page web application that:
-1. Lists movies on SSD via Radarr API
-2. Queues movies for transfer with real-time status tracking
-3. Copies files with minimal system impact (rsync + ionice/nice)
-4. Verifies integrity with SHA256 checksums (with progress reporting)
-5. Updates Radarr automatically with new paths
-6. Finds and manages leftover files not tracked by Radarr
-7. Re-copies missing files from SSD to HDD
-8. Emergency queue clearing for stuck operations
+Единое веб-приложение с табовым интерфейсом, которое:
+
+### Модуль Safe Copy:
+1. Показывает фильмы на SSD через Radarr API
+2. Ставит фильмы в очередь копирования с отслеживанием статуса
+3. Копирует файлы с минимальной нагрузкой (rsync + ionice/nice)
+4. Проверяет целостность через SHA256 checksums
+5. Автоматически обновляет пути в Radarr
+6. Находит и управляет потерянными файлами
+
+### Модуль DTS Converter:
+1. Автоматически находит фильмы с DTS аудио
+2. Ставит в очередь конвертации
+3. Конвертирует DTS 5.1(side) в FLAC 7.1
+4. Использует ionice/nice для файлов на HDD
+5. Заменяет оригинальный файл
+6. Триггерит пересканирование в Radarr
 
 ## Technical Architecture
 
@@ -23,299 +33,271 @@ A single-page web application that:
 - **Framework**: Flask 3.0.0 with Gunicorn
 - **Language**: Python 3.11
 - **Architecture**: Modular (core + operations)
-- **Key Libraries**: requests (Radarr API), hashlib (checksums)
-- **Concurrency**: Threading for background operation queue
-- **Storage**: JSON files for config, queue, and history
+- **Key Libraries**: 
+  - requests (Radarr API)
+  - hashlib (checksums)
+  - subprocess (ffmpeg, rsync)
+- **Concurrency**: Отдельные потоки для каждой очереди
+- **Storage**: JSON файлы для конфигурации и очередей
 
 ### Frontend (Vanilla JS)
 - **Style**: Mobile-first responsive design
 - **Framework**: None (vanilla JavaScript)
-- **Updates**: Auto-refresh queue every 2 seconds
+- **Updates**: Auto-refresh очередей каждые 2 секунды
 - **Theme**: Dark mode optimized
+- **Navigation**: Tab-based interface
 
 ### Infrastructure
-- **Container**: Docker (Compose v1 & v2 support)
+- **Container**: Docker с ffmpeg
 - **Port**: 6970 (HTTP)
 - **Volumes**:
-  - `./data` → `/app/data` (config/queue/history)
+  - `./data` → `/app/data` (config/queues/history)
   - SSD path → `/media/movies_ssd`
   - HDD path → `/media/movies_hdd`
 
 ### Project Structure
 ```
-radarr-safe-mover/
-├── core/                    # Reusable modules
-│   ├── config.py           # Configuration management
-│   ├── radarr.py           # Radarr API client
-│   └── queue.py            # Generic operation queue
-├── operations/              # Operation-specific code
-│   ├── copy_operation.py   # Copy with verification
-│   └── leftovers.py        # Leftover files management
-├── app.py                   # Main Flask application
-└── templates/index.html     # Web UI
+ultimate-radarr-toolbox/
+├── core/                      # Reusable modules
+│   ├── config.py             # Configuration management
+│   ├── radarr.py             # Radarr API client
+│   └── queue.py              # Generic operation queue
+├── operations/                # Operation-specific code
+│   ├── copy_operation.py     # Copy with verification
+│   ├── convert_operation.py  # DTS to FLAC conversion
+│   └── leftovers.py          # Leftover files management
+├── app.py                     # Main Flask application
+└── templates/index.html       # Web UI with tabs
 ```
 
 ## Key Features
 
 ### 1. Safe File Copying
 - Uses `rsync` for reliable file transfer
-- Uses `ionice -c3` (idle I/O priority - only copies when disk is idle)
+- Uses `ionice -c3` (idle I/O priority)
 - Uses `nice -n19` (lowest CPU priority)
 - Automatic permission setting: `--chmod=D0755,F0644`
-  - Directories: `0755` (rwxr-xr-x) - readable by all, writable by owner
-  - Files: `0644` (rw-r--r--) - readable by all, writable by owner
-- Minimizes impact on system performance
 - Progress reporting during copy
+- SHA256 checksum verification
 
-### 2. Integrity Verification
-- SHA256 checksum before and after copy
-- Progress reporting during verification (10% increments)
-- Automatic cleanup of corrupted copies
-- Prevents data loss
-- Large file optimization (8MB chunks)
+### 2. DTS to FLAC Conversion
+- Automatic detection of DTS audio files
+- Validates DTS 5.1(side) format
+- Converts to FLAC 7.1 with proper channel mapping
+- Uses ionice/nice for HDD files
+- Replaces original file in-place
+- Triggers Radarr rescan
 
-### 3. Radarr Integration
+### 3. Dual Queue System
+- Separate queues for copy and convert operations
+- Independent processing threads
+- Persistent queues survive restarts
+- Real-time status updates
+- Emergency clear for each queue
+
+### 4. Radarr Integration
 - Fetches movie list via API v3
 - Filters by root folder path
 - Auto-detects SSD/HDD root folders
-- Updates movie paths after successful copy
+- Updates movie paths after operations
 - Triggers rescan for metadata refresh
 
-### 4. Queue Management
-- Sequential processing (one at a time)
-- Status tracking: pending → copying → verifying → updating → completed
-- Persistent queue survives restarts
-- Remove pending items before processing
-- Automatic removal of completed items
-- Emergency queue clear for stuck operations
-
-### 5. Leftover File Management
-- Scans SSD for files not in Radarr
-- Identifies movies on HDD with missing files
-- Delete unwanted leftover files
-- Re-copy missing files from SSD to HDD
-- Size and file count reporting
-
-### 6. User Interface
-- Mobile-optimized (works on phones/tablets)
-- Four sections: Movies, Queue, Leftovers, Settings
-- Real-time status updates (auto-refresh every 2s)
-- One-click operations
-- Emergency controls
+### 5. Tab-Based UI
+- **Safe Copy Tab**: Original functionality
+- **DTS Converter Tab**: Audio conversion
+- **Settings Tab**: Configuration
+- Smooth tab switching
+- Independent data loading per tab
 
 ## API Endpoints
 
 ### Configuration
-- `GET /api/config` - Get current settings (API key masked)
-- `POST /api/config` - Save settings and auto-detect root folders
+- `GET /api/config` - Get current settings
+- `POST /api/config` - Save settings
 
-### Radarr Integration
-- `GET /api/rootfolders` - List available root folders from Radarr
-- `GET /api/movies` - List movies on SSD root folder
+### Movies
+- `GET /api/movies` - List movies on SSD
+- `GET /api/movies/dts` - List movies with DTS audio
 
-### Queue Management
-- `GET /api/queue` - Get current queue with status
-- `POST /api/queue` - Add movie to queue
-- `DELETE /api/queue/<id>` - Remove pending item from queue
-- `POST /api/queue/clear` - Emergency clear entire queue
+### Copy Queue
+- `GET /api/queue/copy` - Get copy queue
+- `POST /api/queue/copy` - Add to copy queue
+- `DELETE /api/queue/copy/<id>` - Remove from copy queue
+- `POST /api/queue/copy/clear` - Clear copy queue
+
+### Convert Queue
+- `GET /api/queue/convert` - Get convert queue
+- `POST /api/queue/convert` - Add to convert queue
+- `DELETE /api/queue/convert/<id>` - Remove from convert queue
+- `POST /api/queue/convert/clear` - Clear convert queue
+
+### History
+- `GET /api/history/copy` - Copy operation history
+- `GET /api/history/convert` - Convert operation history
 
 ### Leftover Files
-- `GET /api/leftovers` - Find files on SSD not in Radarr
-- `DELETE /api/leftovers` - Delete leftover directory
-- `POST /api/leftovers/recopy` - Re-add movie to queue for copying
+- `GET /api/leftovers` - Find leftover files
+- `DELETE /api/leftovers` - Delete leftover file
+- `POST /api/leftovers/recopy` - Re-copy file
 
 ## Data Flow
 
 ```
-User Action → API Request → Backend Processing → Radarr API → File System
-                                    ↓
-                            Queue Persistence (JSON)
-                                    ↓
-                            Background Thread Processing
-                                    ↓
-                            Status Updates → Frontend
+User Action → API Request → Backend Processing → Radarr API / File System
+                                     ↓
+                             Queue Persistence (JSON)
+                                     ↓
+                             Background Thread Processing
+                                     ↓
+                             Status Updates → Frontend
 ```
 
 ## Copy Process Flow
 
-1. **Queue Addition**: User adds movie to queue (status: pending)
-2. **Queue Processing**: Background thread picks up first item
-3. **File Copy**:
-   - Status: copying
-   - Uses rsync with ionice/nice for minimal impact
-   - Reports progress in real-time
-   - Sets permissions automatically (D0755, F0644)
-4. **Verification**:
-   - Status: verifying
-   - Calculate SHA256 of source file (with progress)
-   - Calculate SHA256 of destination file (with progress)
-   - Compare checksums
-   - Delete destination if mismatch
-5. **Radarr Update**:
-   - Status: updating
-   - Update movie path via PUT /api/v3/movie/{id}
-   - Trigger RescanMovie command
-6. **Completion**:
-   - Status: completed
-   - Remove from queue immediately
-   - Log success
+1. **Queue Addition**: User adds movie (status: pending)
+2. **Queue Processing**: Background thread picks up item
+3. **File Copy**: rsync with ionice/nice, progress reporting
+4. **Verification**: SHA256 checksums comparison
+5. **Radarr Update**: Update movie path, trigger rescan
+6. **Completion**: Remove from queue, add to history
 
-### Error Handling
-- **Copy failure**: Mark as failed, keep in queue, log error
-- **Checksum mismatch**: Delete corrupted file, mark as failed
-- **Radarr API error**: Mark as failed, keep in queue
-- **Any exception**: Mark as failed, log full traceback
+## Convert Process Flow
+
+1. **Queue Addition**: User adds movie with DTS audio
+2. **Validation**: Check DTS 5.1(side) format
+3. **Audio Extraction**: Extract and convert to FLAC 7.1
+   - Use ionice/nice if file on HDD
+   - Proper channel mapping
+4. **Merge**: Add FLAC track as first audio stream
+5. **Replace**: Replace original file
+6. **Radarr Update**: Trigger rescan
+7. **Completion**: Remove from queue, add to history
 
 ## Configuration
 
 ### Required Settings
-- **Radarr Host**: IP or hostname of Radarr server
+- **Radarr Host**: IP or hostname
 - **Radarr Port**: Usually 7878
-- **Radarr API Key**: From Radarr Settings → General → Security
+- **Radarr API Key**: From Radarr settings
 
 ### Auto-Detected Settings
-- **SSD Root Folder**: Automatically detected from Radarr (path containing `movies_ssd`)
-- **HDD Root Folder**: Automatically detected from Radarr (path containing `movies_hdd`)
+- **SSD Root Folder**: Path containing `movies_ssd`
+- **HDD Root Folder**: Path containing `movies_hdd`
 
 ### Storage
 - `data/config.json`: User settings
-- `data/queue.json`: Current queue state
+- `data/copy_queue.json`: Copy queue state
+- `data/copy_history.json`: Copy history
+- `data/convert_queue.json`: Convert queue state
+- `data/convert_history.json`: Convert history
 
-## Deployment Scenarios
+## Performance Characteristics
 
-### Docker Compose v1
-```bash
-docker-compose up -d
-```
+### Copy Speed
+- Limited by disk I/O (intentionally)
+- ionice idle class: only when disk idle
+- nice -n19: lowest CPU priority
+- Minimal impact on other services
 
-### Docker Compose v2
-```bash
-docker compose up -d
-```
+### Convert Speed
+- Limited by CPU and disk I/O
+- ionice/nice for HDD files
+- FLAC compression level 8
+- Progress reporting via ffmpeg stats
 
-### Smart Start Script
-```bash
-./start.sh  # Automatically detects v1 or v2
-```
+### Resource Usage
+- Low CPU (lowest priority)
+- Low memory (streaming operations)
+- Network: Only Radarr API calls
+- Disk: One operation per queue at a time
 
 ## Security Considerations
 
 ### Design Assumptions
 - Deployed in trusted home network
 - No authentication required
-- API key stored locally in JSON file
+- API key stored locally
 - Not exposed to internet
 
 ### Recommendations
 - Keep port 6970 internal only
 - Use firewall rules if needed
 - Regular backups of data directory
-- Monitor disk space on both drives
-- Leftover file deletion is permanent (no recycle bin)
-
-### File Permissions
-- Directories: `0755` (rwxr-xr-x)
-- Files: `0644` (rw-r--r--)
-- Owner can read/write, others can only read
-- Suitable for multi-user home media servers
-
-## Performance Characteristics
-
-### Copy Speed
-- Limited by disk I/O (intentionally)
-- ionice idle class: only copies when disk is idle
-- nice -n19: lowest CPU priority
-- rsync streaming: efficient for large files
-- Minimal impact on other services (Plex, Radarr, etc.)
-
-### Resource Usage
-- Low CPU (single-threaded copy, lowest priority)
-- Low memory (streaming copy with 8MB chunks)
-- Network: Only Radarr API calls (minimal)
-- Disk: One active copy at a time
-- Background thread: daemon mode, auto-starts with Gunicorn
-
-### Checksum Performance
-- 8MB chunks for faster processing
-- Progress reporting every 10%
-- Optimized for large video files (10-50GB)
+- Monitor disk space
 
 ## Error Handling
 
 ### Copy Failures
 - Checksum mismatch: Delete corrupted file
-- Disk full: Mark as failed, keep in queue
-- Permission errors: Mark as failed with error message
+- Disk full: Mark as failed
+- Permission errors: Mark as failed with message
 
-### Radarr API Errors
-- Connection failed: Show error in UI
-- Invalid API key: Show error in settings
-- Movie not found: Skip update, mark as failed
+### Convert Failures
+- Invalid audio format: Mark as failed
+- ffmpeg error: Mark as failed with details
+- Disk full: Mark as failed
 
 ### Recovery
-- Queue persists across restarts
+- Queues persist across restarts
 - Failed items remain in queue
 - Manual retry by removing and re-adding
 
-## Implemented Features (Latest)
+## Implemented Features
 
-### v1.0 - Core Functionality
-- Basic copy queue with rsync
-- SHA256 verification
-- Radarr API integration
-- Mobile-first UI
+### v2.0 - Ultimate Radarr Toolbox
+- Renamed from "Radarr Safe Mover"
+- Tab-based interface
+- DTS to FLAC converter module
+- Dual queue system
+- Settings moved to separate tab
+- Independent operation histories
 
-### v1.1 - Enhanced Reliability
-- Fixed infinite loop bug in queue processor
-- Added proper sleep intervals
-- Improved logging with Python logging module
-- Thread initialization for Gunicorn compatibility
+### v1.3 - Emergency Controls & Permissions
+- Emergency queue clear
+- Automatic file permissions
+- Enhanced error handling
 
 ### v1.2 - Leftover Management
-- Find files on SSD not in Radarr
-- Detect missing HDD files
+- Find untracked files
 - Delete leftover files
 - Re-copy missing files
 
-### v1.3 - Emergency Controls & Permissions
-- Emergency queue clear button
-- Automatic file permissions (0755/0644)
-- Fixed re-copy using wrong paths
-- Enhanced error handling
+### v1.1 - Enhanced Reliability
+- Fixed queue processor bugs
+- Improved logging
+- Thread initialization
 
-## Future Enhancements (Not Implemented)
+### v1.0 - Core Functionality
+- Basic copy queue
+- SHA256 verification
+- Radarr integration
+- Mobile-first UI
+
+## Future Enhancements
 
 Potential improvements:
-- Automatic cleanup of source files after successful copy
-- Batch operations (select multiple movies)
+- Batch operations
 - Detailed progress bars with ETA
-- Email/webhook notifications on completion
-- Scheduled automatic transfers
-- Bandwidth limiting options
-- Support for other *arr applications (Sonarr, Lidarr, etc.)
-- Pause/resume functionality
-- Copy history and statistics
+- Email/webhook notifications
+- Scheduled operations
+- Support for other audio formats
+- Subtitle management
+- Quality upgrade automation
 
 ## Development Notes
 
 ### Testing
 - Test with various file sizes
-- Verify checksum validation works
-- Test Radarr API error handling
+- Verify DTS detection works
+- Test conversion with different DTS variants
 - Confirm mobile responsiveness
 - Test both Docker Compose v1 and v2
 
 ### Debugging
-- Check logs: `docker-compose logs -f`
-- Inspect queue: `cat data/queue.json`
-- Verify volumes: `docker inspect radarr-safe-mover`
+- Check logs: `docker compose logs -f`
+- Inspect queues: `cat data/*_queue.json`
+- Verify ffmpeg: `docker exec -it container ffmpeg -version`
 - Test Radarr API: Use browser or curl
-
-### Common Issues
-1. **Movies not showing**: Check SSD root folder path
-2. **Copy fails**: Verify volume mounts and permissions
-3. **Radarr not updating**: Check API key and connectivity
-4. **Checksum fails**: Disk errors or insufficient space
 
 ## License
 MIT License - Free for personal and commercial use

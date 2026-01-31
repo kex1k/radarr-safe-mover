@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 
-# Install ionice, nice, and rsync utilities
+# Install ionice, nice, rsync, and ffmpeg utilities
 RUN apt-get update && apt-get install -y \
     util-linux \
     coreutils \
     rsync \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

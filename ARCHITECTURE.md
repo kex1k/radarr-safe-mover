@@ -2,12 +2,12 @@
 
 ## Overview
 
-This project is designed with modularity in mind, separating **core functionality** (reusable across different operations) from **operation-specific implementations** (like copying with verification).
+Ultimate Radarr Toolbox построен с модульной архитектурой, разделяющей **core функциональность** (переиспользуемую для разных операций) от **operation-specific реализаций** (копирование, конвертация и т.д.).
 
 ## Project Structure
 
 ```
-radarr-safe-mover/
+ultimate-radarr-toolbox/
 ├── core/                          # Core reusable modules
 │   ├── __init__.py
 │   ├── config.py                  # Configuration management
@@ -17,15 +17,16 @@ radarr-safe-mover/
 ├── operations/                    # Operation-specific implementations
 │   ├── __init__.py
 │   ├── copy_operation.py          # Copy with checksum verification
+│   ├── convert_operation.py       # DTS to FLAC conversion
 │   └── leftovers.py               # Leftover files management
 │
 ├── templates/
-│   └── index.html                 # Web UI
+│   └── index.html                 # Web UI with tabs
 │
-├── app.py                         # Original monolithic app (legacy)
-├── app_refactored.py              # New modular app
+├── app.py                         # Main Flask application
 ├── docker-compose.yml
 ├── Dockerfile
+├── convert-dts-to-flac.sh        # Original conversion script
 └── requirements.txt
 ```
 
@@ -57,7 +58,7 @@ config_manager.set('ssd_root_folder', '/media/movies_ssd')
 
 **Key Methods**:
 - `get_root_folders()` - Get all root folders
-- `get_all_movies()` - Get all movies
+- `get_movies()` - Get all movies
 - `get_movie(movie_id)` - Get specific movie
 - `update_movie(movie_id, data)` - Update movie
 - `rescan_movie(movie_id)` - Trigger rescan
@@ -116,7 +117,7 @@ queue.start_processor()
 
 ### 1. `operations/copy_operation.py` - CopyOperationHandler
 
-**Purpose**: Copy movies from SSD to HDD with verification (specific to this app).
+**Purpose**: Copy movies from SSD to HDD with verification.
 
 **Features**:
 - rsync with ionice/nice for minimal system impact
@@ -135,9 +136,31 @@ class CopyOperationHandler(OperationHandler):
         # 4. Trigger rescan
 ```
 
-### 2. `operations/leftovers.py` - LeftoversManager
+### 2. `operations/convert_operation.py` - ConvertOperationHandler
 
-**Purpose**: Find and manage files on SSD not tracked by Radarr (specific to this app).
+**Purpose**: Convert DTS audio to FLAC 7.1.
+
+**Features**:
+- Validates DTS 5.1(side) format
+- Converts to FLAC 7.1 with proper channel mapping
+- Uses ionice/nice for HDD files
+- Replaces original file in-place
+- Triggers Radarr rescan
+
+**Implementation**:
+```python
+class ConvertOperationHandler(OperationHandler):
+    def execute(self, movie, update_status, update_progress):
+        # 1. Validate audio format
+        # 2. Convert DTS to FLAC 7.1
+        # 3. Merge audio track
+        # 4. Replace original file
+        # 5. Trigger rescan
+```
+
+### 3. `operations/leftovers.py` - LeftoversManager
+
+**Purpose**: Find and manage files on SSD not tracked by Radarr.
 
 **Features**:
 - Scan SSD for untracked directories
@@ -145,131 +168,110 @@ class CopyOperationHandler(OperationHandler):
 - Delete leftover files
 - Prepare movies for re-copying
 
-## How to Fork for Different Operations
+## Multi-Module Architecture
 
-### Step 1: Keep Core Modules
+### Dual Queue System
 
-The `core/` directory contains all reusable functionality:
-- ✅ Keep `core/config.py`
-- ✅ Keep `core/radarr.py`
-- ✅ Keep `core/queue.py`
-
-### Step 2: Replace Operation-Specific Code
-
-Create your own operation handler in `operations/`:
+Приложение использует две независимые очереди:
 
 ```python
-# operations/my_operation.py
+# Copy queue
+copy_queue = OperationQueue(
+    queue_file='data/copy_queue.json',
+    history_file='data/copy_history.json',
+    operation_handler=copy_operation_handler
+)
+
+# Convert queue
+convert_queue = OperationQueue(
+    queue_file='data/convert_queue.json',
+    history_file='data/convert_history.json',
+    operation_handler=convert_operation_handler
+)
+```
+
+Каждая очередь:
+- Работает в отдельном потоке
+- Имеет свою историю операций
+- Независимо обрабатывает задачи
+- Может быть очищена отдельно
+
+### Tab-Based UI
+
+Интерфейс разделен на три вкладки:
+
+1. **Safe Copy Tab** - Копирование файлов
+   - Movies on SSD
+   - Copy Queue
+   - Copy History
+   - Leftovers
+
+2. **DTS Converter Tab** - Конвертация аудио
+   - Movies with DTS Audio
+   - Conversion Queue
+   - Conversion History
+
+3. **Settings Tab** - Настройки
+   - Radarr Configuration
+   - Auto-detected Root Folders
+
+## How to Add New Operations
+
+### Step 1: Create Operation Handler
+
+```python
+# operations/new_operation.py
 from core.queue import OperationHandler
 from core.radarr import RadarrClient
 
-class MyOperationHandler(OperationHandler):
+class NewOperationHandler(OperationHandler):
     def __init__(self, config_manager):
         self.config_manager = config_manager
     
     def execute(self, movie, update_status, update_progress):
-        """
-        Implement your custom operation here
-        
-        Args:
-            movie: Movie data from Radarr
-            update_status: Callback to update status (e.g., 'processing', 'analyzing')
-            update_progress: Callback to update progress text
-        """
-        # Example: Analyze movie quality
-        update_status('analyzing')
-        update_progress('Checking video quality...')
-        
-        # Your logic here
-        movie_file = movie.get('movieFile', {})
-        quality = movie_file.get('quality', {})
-        
-        # Update Radarr if needed
-        radarr = RadarrClient(
-            self.config_manager.get('radarr_host'),
-            self.config_manager.get('radarr_port'),
-            self.config_manager.get('radarr_api_key')
-        )
-        
-        # Do something with the movie
-        # ...
-        
-        update_progress('Completed!')
+        # Your operation logic
+        pass
 ```
 
-### Step 3: Update Main App
-
-Modify `app_refactored.py` to use your operation:
+### Step 2: Add Queue in app.py
 
 ```python
-# Replace this:
-from operations.copy_operation import CopyOperationHandler
+from operations.new_operation import NewOperationHandler
 
-# With this:
-from operations.my_operation import MyOperationHandler
-
-# And update initialization:
-operation_handler = MyOperationHandler(config_manager)
+new_operation_handler = NewOperationHandler(config_manager)
+new_queue = OperationQueue(
+    queue_file='data/new_queue.json',
+    history_file='data/new_history.json',
+    operation_handler=new_operation_handler
+)
+new_queue.start_processor()
 ```
 
-### Step 4: Remove Unused Features
-
-If you don't need leftovers functionality:
-1. Delete `operations/leftovers.py`
-2. Remove leftover routes from `app_refactored.py`:
-   - `/api/leftovers` (GET, DELETE)
-   - `/api/leftovers/recopy` (POST)
-3. Remove leftover section from `templates/index.html`
-
-### Step 5: Update UI
-
-Modify `templates/index.html` to match your operation:
-- Change section titles
-- Update button labels
-- Adjust status messages
-- Customize progress display
-
-## Example: Quality Upgrade Operation
-
-Here's a complete example of forking for a different operation:
+### Step 3: Add API Endpoints
 
 ```python
-# operations/quality_upgrade.py
-from core.queue import OperationHandler
-from core.radarr import RadarrClient
-import requests
+@app.route('/api/queue/new', methods=['GET'])
+def get_new_queue():
+    return jsonify(new_queue.get_queue())
 
-class QualityUpgradeHandler(OperationHandler):
-    """Automatically upgrade movie quality if better version available"""
-    
-    def __init__(self, config_manager):
-        self.config_manager = config_manager
-    
-    def execute(self, movie, update_status, update_progress):
-        update_status('searching')
-        update_progress('Searching for better quality...')
-        
-        radarr = RadarrClient(
-            self.config_manager.get('radarr_host'),
-            self.config_manager.get('radarr_port'),
-            self.config_manager.get('radarr_api_key')
-        )
-        
-        # Trigger automatic search in Radarr
-        update_status('upgrading')
-        update_progress('Triggering quality upgrade...')
-        
-        response = requests.post(
-            f"{radarr.base_url}/command",
-            headers=radarr.headers,
-            json={
-                'name': 'MoviesSearch',
-                'movieIds': [movie['id']]
-            }
-        )
-        response.raise_for_status()
-        
-        update_progress('Upgrade search initiated!')
+@app.route('/api/queue/new', methods=['POST'])
+def add_to_new_queue():
+    data = request.json
+    movie = data.get('movie')
+    new_queue.add_to_queue(movie)
+    return jsonify({'success': True})
+```
+
+### Step 4: Add UI Tab
+
+```html
+<!-- Add tab button -->
+<button class="tab" onclick="switchTab('new-operation')">🆕 New Operation</button>
+
+<!-- Add tab content -->
+<div id="new-operation" class="tab-content">
+    <!-- Your UI here -->
+</div>
 ```
 
 ## Benefits of This Architecture
@@ -279,6 +281,7 @@ class QualityUpgradeHandler(OperationHandler):
 3. **Testability**: Each module can be tested independently
 4. **Maintainability**: Changes to operations don't affect core functionality
 5. **Extensibility**: Easy to add new operations without modifying core
+6. **Scalability**: Multiple operations can run simultaneously
 
 ## Deployment
 
@@ -290,9 +293,9 @@ docker compose up -d --build
 
 ## API Compatibility
 
-The refactored version maintains **100% API compatibility** with the original:
-- All endpoints remain the same
-- Request/response formats unchanged
-- Frontend requires no modifications
+The application maintains consistent API patterns:
+- All queue endpoints follow `/api/queue/<operation>` pattern
+- All history endpoints follow `/api/history/<operation>` pattern
+- Request/response formats are consistent across operations
 
-This ensures a smooth transition without breaking existing integrations.
+This ensures easy integration and predictable behavior.
