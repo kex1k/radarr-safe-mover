@@ -452,12 +452,7 @@
             document.getElementById(tabName).classList.add('active');
             event.target.classList.add('active');
 
-            // Load data for the tab
-            if (tabName === 'safe-copy') {
-                refreshMovies();
-            } else if (tabName === 'dts-converter') {
-                refreshDTSMovies();
-            }
+            // Don't auto-load data - user must click Refresh button
         }
 
         // ============================================================================

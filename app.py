@@ -155,7 +155,7 @@ def get_dts_movies():
     """Get movies with DTS audio from Radarr"""
     try:
         radarr = get_radarr_client()
-        all_movies = radarr.get_movies()
+        all_movies = radarr.get_all_movies()
         
         # Filter movies with DTS in filename
         dts_pattern = re.compile(r'dts', re.IGNORECASE)
