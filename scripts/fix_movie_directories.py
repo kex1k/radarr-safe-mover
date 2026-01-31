@@ -4,7 +4,7 @@ Script to check and fix movie directory names in Radarr.
 
 This script:
 1. Connects to Radarr API
-2. Gets all movies from SSD root folder
+2. Gets all movies from all root folders
 3. Checks if directory names match the format: {Movie.Collection.}{Release.Year}.{Movie.CleanTitle}
 4. Renames directories that don't match
 5. Updates the path in Radarr
@@ -264,40 +264,34 @@ def update_movie_path_in_radarr(radarr_client, movie, new_path, dry_run=False):
         return False
 
 
-def process_movies(radarr_client, ssd_root_folder, path_mappings, dry_run=False):
+def process_root_folder(radarr_client, root_folder_path, root_folder_name, path_mappings, dry_run=False):
     """
-    Process all movies in SSD root folder and fix directory names.
+    Process all movies in a specific root folder and fix directory names.
     
     Args:
         radarr_client: RadarrClient instance
-        ssd_root_folder: Path to SSD root folder (Docker path)
+        root_folder_path: Path to root folder (Docker path)
+        root_folder_name: Name/label for the root folder
         path_mappings: List of path mapping dictionaries
         dry_run: If True, only simulate changes without actually making them
+        
+    Returns:
+        Dictionary with statistics
     """
     logger.info("=" * 80)
-    logger.info(f"Starting movie directory check and fix process {'[DRY-RUN MODE]' if dry_run else ''}")
+    logger.info(f"Processing Root Folder: {root_folder_name}")
     logger.info("=" * 80)
-    logger.info(f"SSD Root Folder (Docker): {ssd_root_folder}")
+    logger.info(f"Root Folder Path (Docker): {root_folder_path}")
     
-    # Map SSD root folder to host path
-    ssd_root_folder_host = map_path(ssd_root_folder, path_mappings)
-    logger.info(f"SSD Root Folder (Host):   {ssd_root_folder_host}")
-    
-    if path_mappings:
-        logger.info(f"Path mappings configured: {len(path_mappings)} mapping(s)")
-        for idx, mapping in enumerate(path_mappings, 1):
-            logger.info(f"  [{idx}] {mapping.get('docker', 'N/A')} -> {mapping.get('host', 'N/A')}")
-    else:
-        logger.warning("⚠️  No path mappings configured - using paths as-is")
-    
-    if dry_run:
-        logger.info("⚠️  DRY-RUN MODE: No actual changes will be made")
+    # Map root folder to host path
+    root_folder_host = map_path(root_folder_path, path_mappings)
+    logger.info(f"Root Folder Path (Host):   {root_folder_host}")
     logger.info("")
     
-    # Get all movies from SSD
-    logger.info("Fetching movies from Radarr...")
-    movies = radarr_client.filter_movies_by_root_folder(ssd_root_folder)
-    logger.info(f"Found {len(movies)} movies in SSD root folder")
+    # Get all movies from this root folder
+    logger.info(f"Fetching movies from {root_folder_name}...")
+    movies = radarr_client.filter_movies_by_root_folder(root_folder_path)
+    logger.info(f"Found {len(movies)} movies in {root_folder_name}")
     logger.info("")
     
     # Statistics
@@ -368,15 +362,127 @@ def process_movies(radarr_client, ssd_root_folder, path_mappings, dry_run=False)
         
         logger.info("")
     
-    # Print summary
+    # Print summary for this root folder
     logger.info("=" * 80)
-    logger.info(f"SUMMARY {'[DRY-RUN MODE]' if dry_run else ''}")
+    logger.info(f"SUMMARY for {root_folder_name} {'[DRY-RUN MODE]' if dry_run else ''}")
     logger.info("=" * 80)
     logger.info(f"Total movies processed: {total_movies}")
     logger.info(f"Movies with correct names: {movies_correct}")
     logger.info(f"Movies that {'would need' if dry_run else 'needed'} fixing: {movies_to_fix}")
     logger.info(f"Movies {'that would be' if dry_run else 'successfully'} fixed: {movies_fixed}")
     logger.info(f"Movies {'that would' if dry_run else 'that'} fail{'ed' if not dry_run else ''} to fix: {movies_failed}")
+    logger.info("=" * 80)
+    logger.info("")
+    
+    return {
+        'total': total_movies,
+        'correct': movies_correct,
+        'to_fix': movies_to_fix,
+        'fixed': movies_fixed,
+        'failed': movies_failed
+    }
+
+
+def process_all_root_folders(radarr_client, path_mappings, dry_run=False):
+    """
+    Process all movies in all root folders and fix directory names.
+    
+    Args:
+        radarr_client: RadarrClient instance
+        path_mappings: List of path mapping dictionaries
+        dry_run: If True, only simulate changes without actually making them
+    """
+    logger.info("=" * 80)
+    logger.info(f"Starting movie directory check and fix process {'[DRY-RUN MODE]' if dry_run else ''}")
+    logger.info("=" * 80)
+    
+    if path_mappings:
+        logger.info(f"Path mappings configured: {len(path_mappings)} mapping(s)")
+        for idx, mapping in enumerate(path_mappings, 1):
+            logger.info(f"  [{idx}] {mapping.get('docker', 'N/A')} -> {mapping.get('host', 'N/A')}")
+    else:
+        logger.warning("⚠️  No path mappings configured - using paths as-is")
+    
+    if dry_run:
+        logger.info("⚠️  DRY-RUN MODE: No actual changes will be made")
+    logger.info("")
+    
+    # Get all root folders from Radarr
+    logger.info("Fetching root folders from Radarr...")
+    root_folders = radarr_client.get_root_folders()
+    logger.info(f"Found {len(root_folders)} root folder(s)")
+    logger.info("")
+    
+    # Display all root folders
+    for idx, rf in enumerate(root_folders, 1):
+        path = rf.get('path', 'N/A')
+        host_path = map_path(path, path_mappings)
+        logger.info(f"  [{idx}] {path}")
+        if path != host_path:
+            logger.info(f"      → {host_path} (host)")
+    logger.info("")
+    
+    # Process each root folder
+    all_stats = []
+    for idx, root_folder in enumerate(root_folders, 1):
+        root_folder_path = root_folder.get('path', '')
+        root_folder_id = root_folder.get('id', 'unknown')
+        
+        if not root_folder_path:
+            logger.warning(f"Skipping root folder {root_folder_id} - no path")
+            continue
+        
+        # Verify root folder exists on host
+        root_folder_host = map_path(root_folder_path, path_mappings)
+        if not os.path.exists(root_folder_host):
+            logger.warning(f"⚠️  Skipping root folder - does not exist on host: {root_folder_host}")
+            if root_folder_path != root_folder_host:
+                logger.warning(f"    (Mapped from Docker path: {root_folder_path})")
+            logger.info("")
+            continue
+        
+        # Process this root folder
+        root_folder_name = f"Root Folder #{idx} ({os.path.basename(root_folder_path)})"
+        stats = process_root_folder(
+            radarr_client,
+            root_folder_path,
+            root_folder_name,
+            path_mappings,
+            dry_run
+        )
+        all_stats.append({
+            'name': root_folder_name,
+            'path': root_folder_path,
+            'stats': stats
+        })
+    
+    # Print overall summary
+    logger.info("=" * 80)
+    logger.info(f"OVERALL SUMMARY {'[DRY-RUN MODE]' if dry_run else ''}")
+    logger.info("=" * 80)
+    
+    total_all = sum(s['stats']['total'] for s in all_stats)
+    correct_all = sum(s['stats']['correct'] for s in all_stats)
+    to_fix_all = sum(s['stats']['to_fix'] for s in all_stats)
+    fixed_all = sum(s['stats']['fixed'] for s in all_stats)
+    failed_all = sum(s['stats']['failed'] for s in all_stats)
+    
+    logger.info(f"Root folders processed: {len(all_stats)}")
+    logger.info(f"Total movies across all folders: {total_all}")
+    logger.info(f"Movies with correct names: {correct_all}")
+    logger.info(f"Movies that {'would need' if dry_run else 'needed'} fixing: {to_fix_all}")
+    logger.info(f"Movies {'that would be' if dry_run else 'successfully'} fixed: {fixed_all}")
+    logger.info(f"Movies {'that would' if dry_run else 'that'} fail{'ed' if not dry_run else ''} to fix: {failed_all}")
+    
+    if all_stats:
+        logger.info("")
+        logger.info("Breakdown by root folder:")
+        for item in all_stats:
+            stats = item['stats']
+            logger.info(f"  {item['name']}:")
+            logger.info(f"    Total: {stats['total']}, Correct: {stats['correct']}, "
+                       f"Fixed: {stats['fixed']}, Failed: {stats['failed']}")
+    
     if dry_run:
         logger.info("")
         logger.info("⚠️  This was a DRY-RUN. No actual changes were made.")
@@ -422,11 +528,6 @@ Examples:
             logger.error("Radarr API key not configured")
             sys.exit(1)
         
-        if not config.get('ssd_root_folder'):
-            logger.error("SSD root folder not configured")
-            sys.exit(1)
-        
-        ssd_root_folder = config['ssd_root_folder']
         path_mappings = config.get('path_mappings', [])
         
         # Validate path mappings
@@ -445,16 +546,6 @@ Examples:
             logger.warning("    If running from host with Docker Radarr, you should configure path_mappings")
             logger.warning("    in data/config.json")
         
-        # Map SSD root folder to host path for verification
-        ssd_root_folder_host = map_path(ssd_root_folder, path_mappings)
-        
-        # Verify SSD root folder exists on host
-        if not os.path.exists(ssd_root_folder_host):
-            logger.error(f"SSD root folder does not exist on host: {ssd_root_folder_host}")
-            if ssd_root_folder != ssd_root_folder_host:
-                logger.error(f"(Mapped from Docker path: {ssd_root_folder})")
-            sys.exit(1)
-        
         logger.info("✓ Configuration loaded successfully")
         logger.info("")
         
@@ -468,8 +559,8 @@ Examples:
         logger.info("✓ Connected to Radarr")
         logger.info("")
         
-        # Process movies
-        process_movies(radarr_client, ssd_root_folder, path_mappings, dry_run=args.dry_run)
+        # Process all root folders
+        process_all_root_folders(radarr_client, path_mappings, dry_run=args.dry_run)
         
         logger.info(f"Script completed successfully {'[DRY-RUN MODE]' if args.dry_run else ''}")
         
