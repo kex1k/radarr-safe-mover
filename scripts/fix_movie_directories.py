@@ -123,9 +123,18 @@ def clean_title(title):
     """
     Clean movie title for directory name.
     Removes special characters and replaces spaces with dots.
+    Applies standard conversions like & -> and
     """
-    # Remove special characters except spaces, dots, and hyphens
-    cleaned = re.sub(r'[^\w\s\.\-]', '', title)
+    # Standard character replacements
+    cleaned = title
+    cleaned = cleaned.replace('&', 'and')
+    cleaned = cleaned.replace('+', 'plus')
+    
+    # Replace hyphens with spaces (will become dots later)
+    cleaned = cleaned.replace('-', ' ')
+    
+    # Remove special characters except spaces and dots
+    cleaned = re.sub(r'[^\w\s\.]', '', cleaned)
     # Replace spaces with dots
     cleaned = cleaned.replace(' ', '.')
     # Remove multiple consecutive dots
@@ -148,7 +157,13 @@ def get_expected_directory_name(movie):
     """
     title = movie.get('title', '')
     year = movie.get('year', '')
-    collection = movie.get('collection', {})
+    
+    # Check for collection - it might be under different keys
+    collection = movie.get('collection')
+    
+    # Debug: log collection info
+    if collection:
+        logger.debug(f"Collection found: {collection}")
     
     clean_movie_title = clean_title(title)
     
@@ -156,9 +171,18 @@ def get_expected_directory_name(movie):
     parts = []
     
     # Add collection name if exists
-    if collection and collection.get('name'):
-        collection_name = clean_title(collection['name'])
-        parts.append(collection_name)
+    # Collection can be a dict with 'name' or 'title' key
+    if collection:
+        collection_name = None
+        if isinstance(collection, dict):
+            collection_name = collection.get('name') or collection.get('title')
+        elif isinstance(collection, str):
+            collection_name = collection
+        
+        if collection_name:
+            clean_collection_name = clean_title(collection_name)
+            parts.append(clean_collection_name)
+            logger.debug(f"Using collection name: {clean_collection_name}")
     
     # Add year
     parts.append(str(year))
@@ -316,12 +340,25 @@ def process_root_folder(radarr_client, root_folder_path, root_folder_name, path_
         if current_path_docker != current_path_host:
             logger.info(f"Current path (Host):   {current_path_host}")
         
+        # Debug: log movie data for troubleshooting
+        logger.debug(f"Movie data: title={movie.get('title')}, year={movie.get('year')}, "
+                    f"collection={movie.get('collection')}")
+        
         # Get expected directory name
         expected_dir_name = get_expected_directory_name(movie)
         current_dir_name = get_current_directory_name(current_path_host)
         
         logger.info(f"Current directory name: {current_dir_name}")
         logger.info(f"Expected directory name: {expected_dir_name}")
+        
+        # Show collection info if present
+        collection = movie.get('collection')
+        if collection:
+            if isinstance(collection, dict):
+                coll_name = collection.get('name') or collection.get('title', 'N/A')
+            else:
+                coll_name = str(collection)
+            logger.info(f"Collection: {coll_name}")
         
         # Check if directory name matches expected format
         if current_dir_name == expected_dir_name:
