@@ -1,10 +1,9 @@
 """Copy operation with verification - specific to safe mover"""
 import os
-import hashlib
-import subprocess
 import logging
 from core.queue import OperationHandler
 from core.radarr import RadarrClient
+from operations.file_operations import safe_copy_file
 
 logger = logging.getLogger(__name__)
 
@@ -46,44 +45,18 @@ class CopyOperationHandler(OperationHandler):
         relative_path = src_path[len(ssd_root):].lstrip('/')
         dst_path = os.path.join(hdd_root, relative_path)
         
-        # Step 1: Copy file
+        # Step 1: Copy file with verification (always use nice for HDD)
         update_status('copying')
-        update_progress('Copying file...')
+        update_progress('Copying file with verification...')
         
-        def progress_callback(line):
-            update_progress(f'Copying: {line}')
+        def progress_callback(message):
+            update_progress(message)
         
-        logger.info(f"Starting copy: {src_path} -> {dst_path}")
-        self._copy_file_with_nice(src_path, dst_path, progress_callback)
-        logger.info(f"Copy completed: {dst_path}")
+        logger.info(f"Starting safe copy: {src_path} -> {dst_path}")
+        safe_copy_file(src_path, dst_path, use_nice=True, progress_callback=progress_callback)
+        logger.info(f"Safe copy completed: {dst_path}")
         
-        # Step 2: Verify checksum
-        update_status('verifying')
-        update_progress('Verifying checksum...')
-        
-        logger.info("Starting checksum verification...")
-        
-        def verify_src_progress(progress):
-            update_progress(f'Verifying source: {progress}')
-        
-        src_checksum = self._calculate_checksum(src_path, verify_src_progress)
-        
-        def verify_dst_progress(progress):
-            update_progress(f'Verifying destination: {progress}')
-        
-        dst_checksum = self._calculate_checksum(dst_path, verify_dst_progress)
-        
-        logger.info(f"Source checksum: {src_checksum}")
-        logger.info(f"Destination checksum: {dst_checksum}")
-        
-        if src_checksum != dst_checksum:
-            logger.error("Checksum mismatch! Removing corrupted file.")
-            os.remove(dst_path)
-            raise Exception("Checksum verification failed")
-        
-        logger.info("Checksum verification passed")
-        
-        # Step 3: Update Radarr
+        # Step 2: Update Radarr
         update_status('updating')
         update_progress('Updating Radarr...')
         
@@ -105,72 +78,8 @@ class CopyOperationHandler(OperationHandler):
         radarr.update_movie(movie_id, movie)
         logger.info(f"Movie updated successfully in Radarr")
         
-        # Step 4: Trigger rescan
+        # Step 3: Trigger rescan
         logger.info(f"Triggering rescan for movie ID {movie_id}")
         radarr.rescan_movie(movie_id)
         logger.info("Rescan triggered successfully")
     
-    def _copy_file_with_nice(self, src, dst, progress_callback=None):
-        """Copy file using rsync with ionice and nice"""
-        # Ensure destination directory exists with proper permissions
-        dst_dir = os.path.dirname(dst)
-        os.makedirs(dst_dir, exist_ok=True)
-        os.chmod(dst_dir, 0o755)
-        
-        # rsync with ionice/nice and permission setting
-        cmd = [
-            'ionice', '-c3',
-            'nice', '-n19',
-            'rsync', '-a', '--chmod=D0755,F0644', '--info=progress2', '--no-i-r',
-            src, dst
-        ]
-        
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-        
-        for line in process.stdout:
-            line = line.strip()
-            if line:
-                logger.info(f"Copy progress: {line}")
-                if progress_callback:
-                    progress_callback(line)
-        
-        process.wait()
-        
-        if process.returncode != 0:
-            stderr = process.stderr.read()
-            raise Exception(f"Copy failed: {stderr}")
-        
-        return dst
-    
-    def _calculate_checksum(self, filepath, progress_callback=None):
-        """Calculate SHA256 checksum with progress reporting"""
-        hash_func = hashlib.sha256()
-        file_size = os.path.getsize(filepath)
-        bytes_read = 0
-        chunk_size = 8192 * 1024  # 8MB chunks
-        
-        logger.info(f"Calculating SHA256 checksum for {filepath} ({file_size / 1024 / 1024 / 1024:.2f} GB)")
-        
-        with open(filepath, 'rb') as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                hash_func.update(chunk)
-                bytes_read += len(chunk)
-                
-                # Report progress every 10%
-                if progress_callback and file_size > 0:
-                    progress = (bytes_read / file_size) * 100
-                    if int(progress) % 10 == 0:
-                        progress_callback(f"{progress:.0f}%")
-        
-        checksum = hash_func.hexdigest()
-        logger.info(f"Checksum calculated: {checksum}")
-        return checksum

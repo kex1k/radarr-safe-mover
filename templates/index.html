@@ -729,10 +729,35 @@
             if (!movie) return;
             
             try {
+                // For convert operation, show audio info confirmation
+                if (operationType === 'convert') {
+                    // Get audio info first
+                    const audioResponse = await fetch(`/api/movies/${movieId}/audio-info`);
+                    if (!audioResponse.ok) {
+                        const error = await audioResponse.json();
+                        throw new Error(error.error || 'Failed to get audio info');
+                    }
+                    
+                    const audioInfo = await audioResponse.json();
+                    
+                    // Show confirmation with audio details
+                    const confirmMessage = `Convert "${movie.title}" to FLAC 7.1?\n\n` +
+                        `Current Audio:\n` +
+                        `Codec: ${audioInfo.codec_long_name || audioInfo.codec_name}\n` +
+                        `Channels: ${audioInfo.channel_layout} (${audioInfo.channels} channels)\n` +
+                        `Sample Rate: ${audioInfo.sample_rate} Hz\n` +
+                        `Bit Rate: ${audioInfo.bit_rate ? (parseInt(audioInfo.bit_rate) / 1000).toFixed(0) + ' kbps' : 'Unknown'}\n\n` +
+                        `This will convert to FLAC 7.1 and replace the original file.`;
+                    
+                    if (!confirm(confirmMessage)) {
+                        return;
+                    }
+                }
+                
                 const response = await fetch('/api/queue/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         movie: movie,
                         operation_type: operationType
                     })

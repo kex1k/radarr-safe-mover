@@ -6,6 +6,8 @@ import re
 import tempfile
 from core.queue import OperationHandler
 from core.radarr import RadarrClient
+from operations.file_operations import safe_replace_file
+from operations.media_operations import validate_audio_format
 
 logger = logging.getLogger(__name__)
 
@@ -107,41 +109,12 @@ class ConvertOperationHandler(OperationHandler):
     
     def _validate_audio_format(self, filepath):
         """Validate that file has DTS audio and return duration"""
-        cmd = [
-            'ffprobe', '-v', 'quiet', '-print_format', 'json',
-            '-show_streams', '-show_format', '-select_streams', 'a:0',
-            filepath
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise Exception("Failed to probe media file")
-        
-        import json
-        media_info = json.loads(result.stdout)
-        
-        # Extract audio stream info
-        streams = media_info.get('streams', [])
-        if not streams:
-            raise Exception("No audio streams found")
-        
-        audio_stream = streams[0]
-        codec_name = audio_stream.get('codec_name', '')
-        channel_layout = audio_stream.get('channel_layout', '')
-        
-        # Check if codec is DTS
-        if not codec_name.startswith('dts'):
-            raise Exception(f"Audio codec is not DTS (found: {codec_name})")
-        
-        # Check if channel layout is 5.1(side)
-        if channel_layout != '5.1(side)':
-            raise Exception(f"Channel layout is not 5.1(side) (found: {channel_layout})")
-        
-        # Get duration
-        format_info = media_info.get('format', {})
-        duration = float(format_info.get('duration', 0))
-        
-        return duration
+        # Use common media operations function
+        return validate_audio_format(
+            filepath,
+            expected_codec='dts',
+            expected_layout='5.1(side)'
+        )
     
     def _convert_to_flac(self, input_file, output_file, duration, use_nice, progress_callback):
         """Convert DTS audio to FLAC 7.1"""
@@ -225,22 +198,18 @@ class ConvertOperationHandler(OperationHandler):
             raise Exception("Output file was not created")
     
     def _replace_file(self, original_path, new_path):
-        """Replace original file with new one, preserving permissions"""
-        # Get original permissions
-        try:
-            stat_info = os.stat(original_path)
-            original_mode = stat_info.st_mode
-        except:
-            original_mode = 0o644
+        """
+        Replace original file with new one using safe copy with checksum verification.
         
-        # Remove original
-        os.remove(original_path)
+        For HDD files: uses ionice/nice for safe copying
+        For SSD files: direct copy without ionice/nice
+        """
+        # Determine if file is on HDD
+        config = self.config_manager.config
+        hdd_root = config.get('hdd_root_folder', '')
+        is_on_hdd = hdd_root and original_path.startswith(hdd_root)
         
-        # Move new file to original location
-        os.rename(new_path, original_path)
+        logger.info(f"Replacing file with safe copy (HDD mode: {is_on_hdd})")
         
-        # Restore permissions
-        try:
-            os.chmod(original_path, original_mode)
-        except:
-            pass
+        # Use common safe_replace_file function
+        safe_replace_file(original_path, new_path, use_nice=is_on_hdd)

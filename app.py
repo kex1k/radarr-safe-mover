@@ -5,6 +5,7 @@ Main Flask application using modular architecture
 from flask import Flask, render_template, jsonify, request
 import logging
 import re
+import os
 
 # Core modules
 from core.config import ConfigManager
@@ -15,6 +16,7 @@ from core.queue import OperationQueue
 from operations.copy_operation import CopyOperationHandler
 from operations.convert_operation import ConvertOperationHandler
 from operations.leftovers import LeftoversManager
+from operations.media_operations import get_audio_stream_info
 
 # Configure logging
 logging.basicConfig(
@@ -152,13 +154,14 @@ def get_movies():
 
 @app.route('/api/movies/dts', methods=['GET'])
 def get_dts_movies():
-    """Get movies with DTS audio from Radarr"""
+    """Get movies with DTS 5.1 audio from Radarr"""
     try:
         radarr = get_radarr_client()
         all_movies = radarr.get_all_movies()
         
-        # Filter movies with DTS in filename
-        dts_pattern = re.compile(r'dts', re.IGNORECASE)
+        # Filter movies with DTS and 5.1 in filename (NOT 7.1)
+        # Pattern: DTS (case insensitive) AND 5.1
+        dts_pattern = re.compile(r'dts.*5\.1|5\.1.*dts', re.IGNORECASE)
         dts_movies = []
         
         for movie in all_movies:
@@ -172,6 +175,32 @@ def get_dts_movies():
     except Exception as e:
         logger.error(f"Error getting DTS movies: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/movies/<int:movie_id>/audio-info', methods=['GET'])
+def get_movie_audio_info(movie_id):
+    """Get audio codec information for a movie using ffprobe"""
+    try:
+        radarr = get_radarr_client()
+        movie = radarr.get_movie(movie_id)
+        
+        movie_file = movie.get('movieFile', {})
+        if not movie_file:
+            return jsonify({'error': 'Movie has no file'}), 404
+        
+        file_path = movie_file.get('path')
+        if not file_path:
+            return jsonify({'error': 'Movie file path not found'}), 404
+        
+        # Use common media operations function
+        audio_info = get_audio_stream_info(file_path, stream_index=0)
+        return jsonify(audio_info)
+        
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Error getting audio info: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================

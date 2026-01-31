@@ -8,12 +8,17 @@ This script:
 3. Checks if directory names match the format: {Movie.Collection.}{Release.Year}.{Movie.CleanTitle}
 4. Renames directories that don't match
 5. Updates the path in Radarr
+
+Usage:
+    python scripts/fix_movie_directories.py           # Normal mode - makes actual changes
+    python scripts/fix_movie_directories.py --dry-run # Dry-run mode - only shows what would be changed
 """
 import os
 import sys
 import logging
 import re
 import shutil
+import argparse
 from pathlib import Path
 
 # Add parent directory to path to import core modules
@@ -93,19 +98,20 @@ def get_current_directory_name(movie_path):
     return os.path.basename(movie_path.rstrip('/'))
 
 
-def rename_directory(old_path, new_path):
+def rename_directory(old_path, new_path, dry_run=False):
     """
     Rename directory from old_path to new_path.
     
     Args:
         old_path: Current directory path
         new_path: New directory path
+        dry_run: If True, only simulate the rename without actually doing it
         
     Returns:
-        True if successful, False otherwise
+        True if successful (or would be successful in dry-run), False otherwise
     """
     try:
-        logger.info(f"Renaming directory:")
+        logger.info(f"{'[DRY-RUN] Would rename' if dry_run else 'Renaming'} directory:")
         logger.info(f"  FROM: {old_path}")
         logger.info(f"  TO:   {new_path}")
         
@@ -119,6 +125,10 @@ def rename_directory(old_path, new_path):
             logger.error(f"Target directory already exists: {new_path}")
             return False
         
+        if dry_run:
+            logger.info(f"✓ [DRY-RUN] Would successfully rename directory")
+            return True
+        
         # Perform rename
         shutil.move(old_path, new_path)
         logger.info(f"✓ Successfully renamed directory")
@@ -129,7 +139,7 @@ def rename_directory(old_path, new_path):
         return False
 
 
-def update_movie_path_in_radarr(radarr_client, movie, new_path):
+def update_movie_path_in_radarr(radarr_client, movie, new_path, dry_run=False):
     """
     Update movie path in Radarr.
     
@@ -137,13 +147,19 @@ def update_movie_path_in_radarr(radarr_client, movie, new_path):
         radarr_client: RadarrClient instance
         movie: Movie object from Radarr
         new_path: New path for the movie
+        dry_run: If True, only simulate the update without actually doing it
         
     Returns:
-        True if successful, False otherwise
+        True if successful (or would be successful in dry-run), False otherwise
     """
     try:
         movie_id = movie['id']
-        logger.info(f"Updating movie path in Radarr (ID: {movie_id})...")
+        logger.info(f"{'[DRY-RUN] Would update' if dry_run else 'Updating'} movie path in Radarr (ID: {movie_id})...")
+        
+        if dry_run:
+            logger.info(f"✓ [DRY-RUN] Would successfully update path in Radarr")
+            logger.info(f"✓ [DRY-RUN] Would trigger rescan for movie")
+            return True
         
         # Update movie data with new path
         movie['path'] = new_path
@@ -164,18 +180,21 @@ def update_movie_path_in_radarr(radarr_client, movie, new_path):
         return False
 
 
-def process_movies(radarr_client, ssd_root_folder):
+def process_movies(radarr_client, ssd_root_folder, dry_run=False):
     """
     Process all movies in SSD root folder and fix directory names.
     
     Args:
         radarr_client: RadarrClient instance
         ssd_root_folder: Path to SSD root folder
+        dry_run: If True, only simulate changes without actually making them
     """
     logger.info("=" * 80)
-    logger.info("Starting movie directory check and fix process")
+    logger.info(f"Starting movie directory check and fix process {'[DRY-RUN MODE]' if dry_run else ''}")
     logger.info("=" * 80)
     logger.info(f"SSD Root Folder: {ssd_root_folder}")
+    if dry_run:
+        logger.info("⚠️  DRY-RUN MODE: No actual changes will be made")
     logger.info("")
     
     # Get all movies from SSD
@@ -224,42 +243,64 @@ def process_movies(radarr_client, ssd_root_folder):
         new_path = os.path.join(parent_dir, expected_dir_name)
         
         # Rename directory
-        if rename_directory(current_path, new_path):
+        if rename_directory(current_path, new_path, dry_run):
             # Update path in Radarr
-            if update_movie_path_in_radarr(radarr_client, movie, new_path):
+            if update_movie_path_in_radarr(radarr_client, movie, new_path, dry_run):
                 movies_fixed += 1
-                logger.info("✓ Movie successfully processed")
+                logger.info(f"✓ Movie {'would be' if dry_run else 'successfully'} processed")
             else:
                 movies_failed += 1
-                logger.error("✗ Failed to update Radarr, attempting to rollback...")
-                # Try to rollback directory rename
-                if os.path.exists(new_path) and not os.path.exists(current_path):
-                    try:
-                        shutil.move(new_path, current_path)
-                        logger.info("✓ Rollback successful")
-                    except Exception as e:
-                        logger.error(f"✗ Rollback failed: {str(e)}")
+                if not dry_run:
+                    logger.error("✗ Failed to update Radarr, attempting to rollback...")
+                    # Try to rollback directory rename
+                    if os.path.exists(new_path) and not os.path.exists(current_path):
+                        try:
+                            shutil.move(new_path, current_path)
+                            logger.info("✓ Rollback successful")
+                        except Exception as e:
+                            logger.error(f"✗ Rollback failed: {str(e)}")
         else:
             movies_failed += 1
-            logger.error("✗ Failed to rename directory")
+            logger.error(f"✗ {'Would fail' if dry_run else 'Failed'} to rename directory")
         
         logger.info("")
     
     # Print summary
     logger.info("=" * 80)
-    logger.info("SUMMARY")
+    logger.info(f"SUMMARY {'[DRY-RUN MODE]' if dry_run else ''}")
     logger.info("=" * 80)
     logger.info(f"Total movies processed: {total_movies}")
     logger.info(f"Movies with correct names: {movies_correct}")
-    logger.info(f"Movies that needed fixing: {movies_to_fix}")
-    logger.info(f"Movies successfully fixed: {movies_fixed}")
-    logger.info(f"Movies failed to fix: {movies_failed}")
+    logger.info(f"Movies that {'would need' if dry_run else 'needed'} fixing: {movies_to_fix}")
+    logger.info(f"Movies {'that would be' if dry_run else 'successfully'} fixed: {movies_fixed}")
+    logger.info(f"Movies {'that would' if dry_run else 'that'} fail{'ed' if not dry_run else ''} to fix: {movies_failed}")
+    if dry_run:
+        logger.info("")
+        logger.info("⚠️  This was a DRY-RUN. No actual changes were made.")
+        logger.info("Run without --dry-run to apply these changes.")
     logger.info("=" * 80)
 
 
 def main():
     """Main entry point"""
     try:
+        # Parse command line arguments
+        parser = argparse.ArgumentParser(
+            description='Check and fix movie directory names in Radarr',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+Examples:
+  %(prog)s              # Normal mode - makes actual changes
+  %(prog)s --dry-run    # Dry-run mode - only shows what would be changed
+            """
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Simulate changes without actually making them'
+        )
+        args = parser.parse_args()
+        
         # Load configuration
         logger.info("Loading configuration...")
         config_manager = ConfigManager('data/config.json')
@@ -303,9 +344,9 @@ def main():
         logger.info("")
         
         # Process movies
-        process_movies(radarr_client, ssd_root_folder)
+        process_movies(radarr_client, ssd_root_folder, dry_run=args.dry_run)
         
-        logger.info("Script completed successfully")
+        logger.info(f"Script completed successfully {'[DRY-RUN MODE]' if args.dry_run else ''}")
         
     except KeyboardInterrupt:
         logger.info("\nScript interrupted by user")
