@@ -39,7 +39,8 @@ class ConfigManager:
             'radarr_port': '',
             'radarr_api_key': '',
             'ssd_root_folder': '',
-            'hdd_root_folder': ''
+            'hdd_root_folder': '',
+            'path_mappings': []
         }
     
     def get(self, key, default=None):

@@ -86,7 +86,13 @@ class ConvertOperationHandler(OperationHandler):
             self._replace_file(src_path, temp_output)
             logger.info("File replaced successfully")
             
-            # Step 5: Trigger Radarr rescan
+            # Step 5: Rename file to reflect new audio format
+            update_progress('Renaming file to reflect FLAC 7.1...')
+            
+            new_path = self._rename_to_flac(src_path)
+            logger.info(f"File renamed: {src_path} -> {new_path}")
+            
+            # Step 6: Trigger Radarr rescan
             update_progress('Triggering Radarr rescan...')
             
             radarr = RadarrClient(
@@ -213,3 +219,57 @@ class ConvertOperationHandler(OperationHandler):
         
         # Use common safe_replace_file function
         safe_replace_file(original_path, new_path, use_nice=is_on_hdd)
+    
+    def _rename_to_flac(self, filepath):
+        """
+        Rename file to reflect FLAC 7.1 audio format
+        
+        Replaces DTS audio patterns with FLAC.7.1 in filename
+        Patterns to replace:
+        - DTS.5.1 -> FLAC.7.1
+        - DTS-HD.MA.5.1 -> FLAC.7.1
+        - DTS.MA.5.1 -> FLAC.7.1
+        - DTS-5.1 -> FLAC.7.1
+        - 5.1.DTS -> FLAC.7.1
+        
+        Returns:
+            str: New file path after rename
+        """
+        directory = os.path.dirname(filepath)
+        filename = os.path.basename(filepath)
+        
+        # Define patterns to replace (case insensitive)
+        # Order matters - more specific patterns first
+        patterns = [
+            (r'DTS[-.]?HD[-.]?MA[-.]?5\.1', 'FLAC.7.1'),
+            (r'DTS[-.]?MA[-.]?5\.1', 'FLAC.7.1'),
+            (r'DTS[-.]?5\.1', 'FLAC.7.1'),
+            (r'5\.1[-.]?DTS', 'FLAC.7.1'),
+        ]
+        
+        new_filename = filename
+        replaced = False
+        
+        for pattern, replacement in patterns:
+            if re.search(pattern, new_filename, re.IGNORECASE):
+                new_filename = re.sub(pattern, replacement, new_filename, flags=re.IGNORECASE)
+                replaced = True
+                logger.info(f"Replaced pattern '{pattern}' with '{replacement}'")
+                break
+        
+        if not replaced:
+            # If no pattern matched, try to insert FLAC.7.1 before file extension
+            name, ext = os.path.splitext(new_filename)
+            new_filename = f"{name}.FLAC.7.1{ext}"
+            logger.info(f"No DTS pattern found, appending FLAC.7.1 before extension")
+        
+        new_filepath = os.path.join(directory, new_filename)
+        
+        # Only rename if filename actually changed
+        if new_filepath != filepath:
+            logger.info(f"Renaming: {filename} -> {new_filename}")
+            os.rename(filepath, new_filepath)
+            return new_filepath
+        else:
+            logger.info("Filename unchanged, skipping rename")
+            return filepath

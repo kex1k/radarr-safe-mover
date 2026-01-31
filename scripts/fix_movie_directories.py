@@ -35,6 +35,90 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def map_path(path, path_mappings):
+    """
+    Map Docker container path to host path using path mappings.
+    
+    Args:
+        path: Path from Radarr (Docker container path)
+        path_mappings: List of mapping dictionaries with 'docker' and 'host' keys
+        
+    Returns:
+        Mapped host path, or original path if no mapping found
+        
+    Example mappings in config.json:
+        "path_mappings": [
+            {
+                "docker": "/media/movies_ssd",
+                "host": "/mnt/storage/movies_ssd"
+            },
+            {
+                "docker": "/media/movies_hdd",
+                "host": "/mnt/storage/movies_hdd"
+            }
+        ]
+    """
+    if not path_mappings:
+        return path
+    
+    for mapping in path_mappings:
+        docker_path = mapping.get('docker', '')
+        host_path = mapping.get('host', '')
+        
+        if not docker_path or not host_path:
+            continue
+        
+        # Normalize paths (remove trailing slashes)
+        docker_path = docker_path.rstrip('/')
+        host_path = host_path.rstrip('/')
+        
+        # Check if path starts with docker path
+        if path.startswith(docker_path):
+            # Replace docker path with host path
+            mapped_path = path.replace(docker_path, host_path, 1)
+            logger.debug(f"Path mapping: {path} -> {mapped_path}")
+            return mapped_path
+    
+    # No mapping found, return original path
+    return path
+
+
+def unmap_path(path, path_mappings):
+    """
+    Map host path back to Docker container path using path mappings.
+    
+    Args:
+        path: Host path
+        path_mappings: List of mapping dictionaries with 'docker' and 'host' keys
+        
+    Returns:
+        Mapped Docker path, or original path if no mapping found
+    """
+    if not path_mappings:
+        return path
+    
+    for mapping in path_mappings:
+        docker_path = mapping.get('docker', '')
+        host_path = mapping.get('host', '')
+        
+        if not docker_path or not host_path:
+            continue
+        
+        # Normalize paths (remove trailing slashes)
+        docker_path = docker_path.rstrip('/')
+        host_path = host_path.rstrip('/')
+        
+        # Check if path starts with host path
+        if path.startswith(host_path):
+            # Replace host path with docker path
+            unmapped_path = path.replace(host_path, docker_path, 1)
+            logger.debug(f"Path unmapping: {path} -> {unmapped_path}")
+            return unmapped_path
+    
+    # No mapping found, return original path
+    return path
+
+
 def clean_title(title):
     """
     Clean movie title for directory name.
@@ -180,19 +264,32 @@ def update_movie_path_in_radarr(radarr_client, movie, new_path, dry_run=False):
         return False
 
 
-def process_movies(radarr_client, ssd_root_folder, dry_run=False):
+def process_movies(radarr_client, ssd_root_folder, path_mappings, dry_run=False):
     """
     Process all movies in SSD root folder and fix directory names.
     
     Args:
         radarr_client: RadarrClient instance
-        ssd_root_folder: Path to SSD root folder
+        ssd_root_folder: Path to SSD root folder (Docker path)
+        path_mappings: List of path mapping dictionaries
         dry_run: If True, only simulate changes without actually making them
     """
     logger.info("=" * 80)
     logger.info(f"Starting movie directory check and fix process {'[DRY-RUN MODE]' if dry_run else ''}")
     logger.info("=" * 80)
-    logger.info(f"SSD Root Folder: {ssd_root_folder}")
+    logger.info(f"SSD Root Folder (Docker): {ssd_root_folder}")
+    
+    # Map SSD root folder to host path
+    ssd_root_folder_host = map_path(ssd_root_folder, path_mappings)
+    logger.info(f"SSD Root Folder (Host):   {ssd_root_folder_host}")
+    
+    if path_mappings:
+        logger.info(f"Path mappings configured: {len(path_mappings)} mapping(s)")
+        for idx, mapping in enumerate(path_mappings, 1):
+            logger.info(f"  [{idx}] {mapping.get('docker', 'N/A')} -> {mapping.get('host', 'N/A')}")
+    else:
+        logger.warning("⚠️  No path mappings configured - using paths as-is")
+    
     if dry_run:
         logger.info("⚠️  DRY-RUN MODE: No actual changes will be made")
     logger.info("")
@@ -214,15 +311,20 @@ def process_movies(radarr_client, ssd_root_folder, dry_run=False):
     for idx, movie in enumerate(movies, 1):
         movie_title = movie.get('title', 'Unknown')
         movie_id = movie.get('id', 'Unknown')
-        current_path = movie.get('path', '')
+        current_path_docker = movie.get('path', '')
+        
+        # Map Docker path to host path
+        current_path_host = map_path(current_path_docker, path_mappings)
         
         logger.info("-" * 80)
         logger.info(f"[{idx}/{total_movies}] Processing: {movie_title} (ID: {movie_id})")
-        logger.info(f"Current path: {current_path}")
+        logger.info(f"Current path (Docker): {current_path_docker}")
+        if current_path_docker != current_path_host:
+            logger.info(f"Current path (Host):   {current_path_host}")
         
         # Get expected directory name
         expected_dir_name = get_expected_directory_name(movie)
-        current_dir_name = get_current_directory_name(current_path)
+        current_dir_name = get_current_directory_name(current_path_host)
         
         logger.info(f"Current directory name: {current_dir_name}")
         logger.info(f"Expected directory name: {expected_dir_name}")
@@ -238,24 +340,25 @@ def process_movies(radarr_client, ssd_root_folder, dry_run=False):
         logger.warning("✗ Directory name does not match expected format")
         movies_to_fix += 1
         
-        # Calculate new path
-        parent_dir = os.path.dirname(current_path)
-        new_path = os.path.join(parent_dir, expected_dir_name)
+        # Calculate new paths (both host and docker)
+        parent_dir_host = os.path.dirname(current_path_host)
+        new_path_host = os.path.join(parent_dir_host, expected_dir_name)
+        new_path_docker = unmap_path(new_path_host, path_mappings)
         
-        # Rename directory
-        if rename_directory(current_path, new_path, dry_run):
-            # Update path in Radarr
-            if update_movie_path_in_radarr(radarr_client, movie, new_path, dry_run):
+        # Rename directory on host filesystem
+        if rename_directory(current_path_host, new_path_host, dry_run):
+            # Update path in Radarr with Docker path
+            if update_movie_path_in_radarr(radarr_client, movie, new_path_docker, dry_run):
                 movies_fixed += 1
                 logger.info(f"✓ Movie {'would be' if dry_run else 'successfully'} processed")
             else:
                 movies_failed += 1
                 if not dry_run:
                     logger.error("✗ Failed to update Radarr, attempting to rollback...")
-                    # Try to rollback directory rename
-                    if os.path.exists(new_path) and not os.path.exists(current_path):
+                    # Try to rollback directory rename on host
+                    if os.path.exists(new_path_host) and not os.path.exists(current_path_host):
                         try:
-                            shutil.move(new_path, current_path)
+                            shutil.move(new_path_host, current_path_host)
                             logger.info("✓ Rollback successful")
                         except Exception as e:
                             logger.error(f"✗ Rollback failed: {str(e)}")
@@ -324,10 +427,32 @@ Examples:
             sys.exit(1)
         
         ssd_root_folder = config['ssd_root_folder']
+        path_mappings = config.get('path_mappings', [])
         
-        # Verify SSD root folder exists
-        if not os.path.exists(ssd_root_folder):
-            logger.error(f"SSD root folder does not exist: {ssd_root_folder}")
+        # Validate path mappings
+        if path_mappings:
+            logger.info(f"Found {len(path_mappings)} path mapping(s) in configuration")
+            for idx, mapping in enumerate(path_mappings, 1):
+                if not isinstance(mapping, dict):
+                    logger.error(f"Path mapping {idx} is not a dictionary")
+                    sys.exit(1)
+                if 'docker' not in mapping or 'host' not in mapping:
+                    logger.error(f"Path mapping {idx} missing 'docker' or 'host' key")
+                    sys.exit(1)
+                logger.info(f"  [{idx}] Docker: {mapping['docker']} -> Host: {mapping['host']}")
+        else:
+            logger.warning("⚠️  No path mappings configured")
+            logger.warning("    If running from host with Docker Radarr, you should configure path_mappings")
+            logger.warning("    in data/config.json")
+        
+        # Map SSD root folder to host path for verification
+        ssd_root_folder_host = map_path(ssd_root_folder, path_mappings)
+        
+        # Verify SSD root folder exists on host
+        if not os.path.exists(ssd_root_folder_host):
+            logger.error(f"SSD root folder does not exist on host: {ssd_root_folder_host}")
+            if ssd_root_folder != ssd_root_folder_host:
+                logger.error(f"(Mapped from Docker path: {ssd_root_folder})")
             sys.exit(1)
         
         logger.info("✓ Configuration loaded successfully")
@@ -344,7 +469,7 @@ Examples:
         logger.info("")
         
         # Process movies
-        process_movies(radarr_client, ssd_root_folder, dry_run=args.dry_run)
+        process_movies(radarr_client, ssd_root_folder, path_mappings, dry_run=args.dry_run)
         
         logger.info(f"Script completed successfully {'[DRY-RUN MODE]' if args.dry_run else ''}")
         
