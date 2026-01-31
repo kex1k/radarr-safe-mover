@@ -3,10 +3,14 @@ import os
 import subprocess
 import logging
 import re
+import tempfile
 from core.queue import OperationHandler
 from core.radarr import RadarrClient
 
 logger = logging.getLogger(__name__)
+
+# Get temp directory from environment or use default
+TEMP_DIR = os.environ.get('TEMP_DIR', '/tmp')
 
 
 class ConvertOperationHandler(OperationHandler):
@@ -52,7 +56,10 @@ class ConvertOperationHandler(OperationHandler):
         update_status('copying')
         update_progress('Converting DTS to FLAC 7.1...')
         
-        temp_audio = f"/tmp/convert_audio_{os.getpid()}.flac"
+        # Ensure temp directory exists
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        
+        temp_audio = os.path.join(TEMP_DIR, f"convert_audio_{os.getpid()}.flac")
         
         try:
             logger.info(f"Starting conversion to FLAC 7.1...")
@@ -63,7 +70,7 @@ class ConvertOperationHandler(OperationHandler):
             update_status('verifying')
             update_progress('Merging audio track into MKV...')
             
-            temp_output = f"/tmp/convert_output_{os.getpid()}.mkv"
+            temp_output = os.path.join(TEMP_DIR, f"convert_output_{os.getpid()}.mkv")
             
             logger.info("Merging audio track...")
             self._merge_audio_track(src_path, temp_audio, temp_output, is_on_hdd)

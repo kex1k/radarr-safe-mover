@@ -8,9 +8,11 @@ services:
       - "6970:6970"
     volumes:
       - ./data:/app/data
+      - ./temp:/app/temp
       - /path/to/your/ssd/movies:/media/movies_ssd
       - /path/to/your/hdd/movies:/media/movies_hdd
     environment:
       - PYTHONUNBUFFERED=1
+      - TEMP_DIR=/app/temp
     restart: unless-stopped
     privileged: true

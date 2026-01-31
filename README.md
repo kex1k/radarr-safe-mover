@@ -51,11 +51,16 @@ cd ultimate-radarr-toolbox
 ```yaml
 volumes:
   - ./data:/app/data
+  - ./temp:/app/temp  # Временная директория для конвертации
   - /path/to/your/ssd/movies:/media/movies_ssd  # Путь к SSD папке
   - /path/to/your/hdd/movies:/media/movies_hdd  # Путь к HDD папке
+environment:
+  - TEMP_DIR=/app/temp  # Путь для временных файлов конвертации
 ```
 
-**Примечание:** Пути внутри контейнера (`/media/movies_ssd` и `/media/movies_hdd`) должны соответствовать root folders в Radarr.
+**Примечание:**
+- Пути внутри контейнера (`/media/movies_ssd` и `/media/movies_hdd`) должны соответствовать root folders в Radarr
+- `./temp` директория будет создана автоматически и используется для временных файлов при конвертации (избегает использования `/tmp` на eMMC)
 
 3. Запустите приложение:
 
