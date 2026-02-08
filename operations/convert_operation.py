@@ -131,13 +131,13 @@ class ConvertOperationHandler(OperationHandler):
             cmd.extend(['ionice', '-c3', 'nice', '-n19'])
         
         cmd.extend([
-            'ffmpeg', '-y', '-i', input_file,
+            'ffmpeg', '-y',
+            '-i', input_file,
             '-vn',
+            '-map', '0:a:0',
+            '-af', 'channelmap=map=FL-FL|FR-FR|FC-FC|LFE-LFE|SL-SL|SR-SR|BL=SL|BR=SR:layout=7.1',
             '-c:a', 'flac',
             '-compression_level', '8',
-            '-channel_layout', '7.1',
-            '-ac', '8',
-            '-af', 'pan=7.1|FL=FL|FR=FR|FC=FC|LFE=LFE|BL=SL|BR=SR|SL=SL|SR=SR',
             '-loglevel', 'warning',
             '-stats',
             output_file
@@ -167,8 +167,9 @@ class ConvertOperationHandler(OperationHandler):
         process.wait()
         
         if process.returncode != 0:
-            stderr = process.stderr.read() if process.stderr else ''
-            raise Exception(f"Conversion failed: {stderr}")
+            # stderr already consumed in the loop, get remaining output
+            remaining_stderr = process.stderr.read() if process.stderr else ''
+            raise Exception(f"Conversion failed: {remaining_stderr}")
         
         if not os.path.exists(output_file):
             raise Exception("Output file was not created")
@@ -182,7 +183,9 @@ class ConvertOperationHandler(OperationHandler):
             cmd.extend(['ionice', '-c3', 'nice', '-n19'])
         
         cmd.extend([
-            'ffmpeg', '-i', audio_file, '-i', original_file,
+            'ffmpeg',
+            '-i', audio_file,
+            '-i', original_file,
             '-map', '1:v',
             '-map', '0:a:0',
             '-map', '1:a',
