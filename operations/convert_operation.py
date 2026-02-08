@@ -7,7 +7,7 @@ import tempfile
 from core.queue import OperationHandler
 from core.radarr import RadarrClient
 from operations.file_operations import safe_replace_file
-from operations.media_operations import validate_audio_format
+from operations.media_operations import validate_audio_format, find_dts_audio_track, probe_media_file
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +46,22 @@ class ConvertOperationHandler(OperationHandler):
         hdd_root = config.get('hdd_root_folder', '')
         is_on_hdd = hdd_root and src_path.startswith(hdd_root)
         
-        # Step 1: Validate audio format
+        # Step 1: Find DTS 5.1(side) audio track
         update_status('copying')  # Using 'copying' status for conversion start
-        update_progress('Validating audio format...')
+        update_progress('Searching for DTS 5.1(side) audio track...')
         
-        logger.info(f"Validating audio format for: {src_path}")
-        duration = self._validate_audio_format(src_path)
-        logger.info(f"Audio validation passed, duration: {duration}s")
+        logger.info(f"Searching for DTS audio track in: {src_path}")
+        dts_track_index, audio_info = find_dts_audio_track(src_path)
+        
+        if dts_track_index is None:
+            raise Exception("No DTS 5.1(side) audio track found in file")
+        
+        logger.info(f"Found DTS track at index {dts_track_index}: {audio_info['codec_name']}")
+        
+        # Get duration for progress tracking
+        media_info = probe_media_file(src_path)
+        duration = float(media_info.get('format', {}).get('duration', 0))
+        logger.info(f"Media duration: {duration}s")
         
         # Step 2: Convert audio to FLAC 7.1
         update_status('copying')
@@ -64,8 +73,8 @@ class ConvertOperationHandler(OperationHandler):
         temp_audio = os.path.join(TEMP_DIR, f"convert_audio_{os.getpid()}.flac")
         
         try:
-            logger.info(f"Starting conversion to FLAC 7.1...")
-            self._convert_to_flac(src_path, temp_audio, duration, is_on_hdd, update_progress)
+            logger.info(f"Starting conversion of track {dts_track_index} to FLAC 7.1...")
+            self._convert_to_flac(src_path, temp_audio, duration, is_on_hdd, dts_track_index, update_progress)
             logger.info(f"Conversion completed: {temp_audio}")
             
             # Step 3: Merge audio track
@@ -122,7 +131,7 @@ class ConvertOperationHandler(OperationHandler):
             expected_layout='5.1(side)'
         )
     
-    def _convert_to_flac(self, input_file, output_file, duration, use_nice, progress_callback):
+    def _convert_to_flac(self, input_file, output_file, duration, use_nice, audio_track_index, progress_callback):
         """Convert DTS audio to FLAC 7.1"""
         cmd = []
         
@@ -134,7 +143,7 @@ class ConvertOperationHandler(OperationHandler):
             'ffmpeg', '-y',
             '-i', input_file,
             '-vn',
-            '-map', '0:a:0',
+            '-map', f'0:a:{audio_track_index}',  # Use specific audio track
             '-af', 'channelmap=map=FL-FL|FR-FR|FC-FC|LFE-LFE|SL-SL|SR-SR|BL=SL|BR=SR:layout=7.1',
             '-c:a', 'flac',
             '-compression_level', '8',
@@ -175,25 +184,51 @@ class ConvertOperationHandler(OperationHandler):
             raise Exception("Output file was not created")
     
     def _merge_audio_track(self, original_file, audio_file, output_file, use_nice):
-        """Merge FLAC audio track into MKV"""
+        """
+        Merge FLAC audio track into MKV, replacing existing FLAC if present
+        
+        Strategy:
+        1. Map video from original
+        2. Map new FLAC as first audio track
+        3. Map all other audio tracks EXCEPT existing FLAC tracks
+        4. Map subtitles
+        """
         cmd = []
         
         # Add ionice/nice if file is on HDD
         if use_nice:
             cmd.extend(['ionice', '-c3', 'nice', '-n19'])
         
+        # Build ffmpeg command to replace FLAC tracks
         cmd.extend([
             'ffmpeg',
-            '-i', audio_file,
-            '-i', original_file,
-            '-map', '1:v',
-            '-map', '0:a:0',
-            '-map', '1:a',
-            '-map', '1:s?',
-            '-c', 'copy',
+            '-i', audio_file,      # Input 0: new FLAC track
+            '-i', original_file,   # Input 1: original file
+            '-map', '1:v',         # Map video from original
+            '-map', '0:a:0',       # Map new FLAC as first audio track
+            '-c:v', 'copy',        # Copy video codec
+            '-c:a:0', 'copy',      # Copy new FLAC audio
             '-metadata:s:a:0', 'title=FLAC 7.1',
             '-metadata:s:a:0', 'language=eng',
             '-disposition:a:0', 'default',
+        ])
+        
+        # Map other audio tracks (skip FLAC tracks from original)
+        # We need to check each audio track and skip FLAC ones
+        media_info = probe_media_file(original_file)
+        audio_track_count = 0
+        for stream in media_info.get('streams', []):
+            if stream.get('codec_type') == 'audio':
+                codec_name = stream.get('codec_name', '')
+                if codec_name != 'flac':  # Skip existing FLAC tracks
+                    stream_index = stream.get('index', 0)
+                    cmd.extend(['-map', f'1:{stream_index}', '-c:a:{audio_track_count + 1}', 'copy'])
+                    audio_track_count += 1
+        
+        # Map subtitles
+        cmd.extend([
+            '-map', '1:s?',
+            '-c:s', 'copy',
             '-loglevel', 'error',
             output_file
         ])

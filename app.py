@@ -16,7 +16,7 @@ from core.queue import OperationQueue
 from operations.copy_operation import CopyOperationHandler
 from operations.convert_operation import ConvertOperationHandler
 from operations.leftovers import LeftoversManager
-from operations.media_operations import get_audio_stream_info
+from operations.media_operations import get_audio_stream_info, find_dts_audio_track
 
 # Configure logging
 logging.basicConfig(
@@ -271,6 +271,60 @@ def clear_queue():
 def get_history():
     """Get unified operation history (last 10 operations)"""
     return jsonify(unified_queue.get_history())
+
+
+@app.route('/api/convert/retry', methods=['POST'])
+def retry_conversion():
+    """Retry a failed conversion by finding the file and re-queuing it"""
+    try:
+        data = request.json
+        movie_path = data.get('movie_path')
+        
+        if not movie_path:
+            return jsonify({'error': 'No movie_path provided'}), 400
+        
+        # Check if file exists
+        if not os.path.exists(movie_path):
+            return jsonify({'error': f'File not found: {movie_path}'}), 404
+        
+        # Find DTS track to validate
+        logger.info(f"Validating DTS track in: {movie_path}")
+        dts_track_index, audio_info = find_dts_audio_track(movie_path)
+        
+        if dts_track_index is None:
+            return jsonify({'error': 'No DTS 5.1(side) audio track found in file'}), 400
+        
+        logger.info(f"Found DTS track at index {dts_track_index}")
+        
+        # Try to find movie in Radarr by path
+        radarr = get_radarr_client()
+        all_movies = radarr.get_all_movies()
+        
+        movie = None
+        for m in all_movies:
+            movie_file = m.get('movieFile', {})
+            if movie_file.get('path') == movie_path:
+                movie = m
+                break
+        
+        if not movie:
+            return jsonify({'error': 'Movie not found in Radarr database'}), 404
+        
+        # Add to queue
+        unified_queue.add_to_queue(movie, 'convert')
+        
+        logger.info(f"Re-queued movie for conversion: {movie['title']}")
+        return jsonify({
+            'success': True,
+            'message': f'Added "{movie["title"]}" to conversion queue',
+            'audio_info': audio_info
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error retrying conversion: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================

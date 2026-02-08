@@ -64,14 +64,15 @@ class OperationQueue:
         with open(self.history_file, 'w') as f:
             json.dump(self.history, f, indent=2)
     
-    def add_to_history(self, movie_title, operation_type, success, error_message=None):
+    def add_to_history(self, movie_title, operation_type, success, error_message=None, movie_path=None):
         """Add operation to history (max 10 items)"""
         history_item = {
             'movie_title': movie_title,
             'operation_type': operation_type,
             'success': success,
             'timestamp': datetime.now().isoformat(),
-            'error': error_message if not success else None
+            'error': error_message if not success else None,
+            'movie_path': movie_path  # Store path for retry functionality
         }
         
         # Add to beginning (most recent first)
@@ -193,8 +194,9 @@ class OperationQueue:
                     self.current_item['progress'] = 'Completed successfully'
                     self.current_item['completed_at'] = datetime.now().isoformat()
                     
-                    # Add to history
-                    self.add_to_history(movie_title, operation_type, success=True)
+                    # Add to history with movie path
+                    movie_path = movie.get('movieFile', {}).get('path')
+                    self.add_to_history(movie_title, operation_type, success=True, movie_path=movie_path)
                     
                     # Remove from queue
                     item_id = self.current_item['id']
@@ -214,8 +216,9 @@ class OperationQueue:
                         self.current_item['progress'] = f'Error: {error_msg}'
                         self.current_item['failed_at'] = datetime.now().isoformat()
                         
-                        # Add to history
-                        self.add_to_history(movie_title, operation_type, success=False, error_message=error_msg)
+                        # Add to history with movie path
+                        movie_path = movie.get('movieFile', {}).get('path')
+                        self.add_to_history(movie_title, operation_type, success=False, error_message=error_msg, movie_path=movie_path)
                         
                         # Remove from queue (one attempt only)
                         item_id = self.current_item['id']

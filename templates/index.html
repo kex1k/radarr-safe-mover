@@ -903,9 +903,20 @@
                 const operationType = item.operation_type || 'unknown';
                 const operationLabel = operationType === 'copy' ? 'Copy' : operationType === 'convert' ? 'Convert' : operationType;
                 
+                // Show "Try Again" button only for failed convert operations
+                const retryButton = !item.success && operationType === 'convert' && item.movie_path ? `
+                    <button
+                        onclick="retryConversion('${item.movie_path.replace(/'/g, "\\'")}', '${item.movie_title.replace(/'/g, "\\'")}')"
+                        class="warning"
+                        style="padding: 5px 10px; font-size: 0.85em; margin-top: 5px;"
+                    >
+                        🔄 Try Again
+                    </button>
+                ` : '';
+                
                 return `
                     <div class="movie-item" style="padding: 8px 12px;">
-                        <div class="movie-info" style="display: flex; align-items: center; gap: 10px;">
+                        <div class="movie-info" style="display: flex; align-items: center; gap: 10px; width: 100%;">
                             <span style="font-size: 1.2em;">${icon}</span>
                             <div style="flex: 1;">
                                 <div style="font-weight: bold; font-size: 0.95em;">
@@ -916,11 +927,38 @@
                                     <span class="status ${statusClass}" style="padding: 2px 6px; font-size: 0.75em;">${statusText}</span>
                                     ${errorText}
                                 </div>
+                                ${retryButton}
                             </div>
                         </div>
                     </div>
                 `;
             }).join('');
+        }
+
+        // Retry failed conversion
+        async function retryConversion(moviePath, movieTitle) {
+            if (!confirm(`Retry conversion for "${movieTitle}"?\n\nThis will re-analyze the file and attempt conversion again.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/convert/retry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ movie_path: moviePath })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to retry conversion');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+                await refreshQueue();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
         }
 
         // ============================================================================

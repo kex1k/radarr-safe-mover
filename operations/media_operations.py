@@ -142,3 +142,48 @@ def get_media_duration(filepath):
     media_info = probe_media_file(filepath)
     format_info = media_info.get('format', {})
     return float(format_info.get('duration', 0))
+
+
+def find_dts_audio_track(filepath):
+    """
+    Find first DTS 5.1(side) audio track in media file
+    
+    Args:
+        filepath: Path to media file
+    
+    Returns:
+        tuple: (track_index, audio_info) or (None, None) if not found
+        
+    Raises:
+        FileNotFoundError: If file doesn't exist
+    """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Media file not found: {filepath}")
+    
+    media_info = probe_media_file(filepath)
+    streams = media_info.get('streams', [])
+    
+    # Find first DTS 5.1(side) audio track
+    for idx, stream in enumerate(streams):
+        if stream.get('codec_type') != 'audio':
+            continue
+            
+        codec_name = stream.get('codec_name', '')
+        channel_layout = stream.get('channel_layout', '')
+        
+        # Check if it's DTS with 5.1(side) layout
+        if codec_name.startswith('dts') and channel_layout == '5.1(side)':
+            audio_info = {
+                'index': idx,
+                'codec_name': codec_name,
+                'codec_long_name': stream.get('codec_long_name', 'Unknown'),
+                'channels': stream.get('channels', 0),
+                'channel_layout': channel_layout,
+                'sample_rate': stream.get('sample_rate', 'Unknown'),
+                'bit_rate': stream.get('bit_rate', 'Unknown')
+            }
+            logger.info(f"Found DTS 5.1(side) track at index {idx}: {codec_name}")
+            return idx, audio_info
+    
+    logger.warning(f"No DTS 5.1(side) audio track found in {filepath}")
+    return None, None
