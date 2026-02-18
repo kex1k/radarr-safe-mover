@@ -867,6 +867,8 @@
                 const isExpanded = expandedSeries[series.id] || false;
                 const arrow = isExpanded ? '▼' : '▶';
                 
+                console.log('Rendering series:', series.id, series.title);
+                
                 return `
                     <div class="series-item">
                         <div class="series-header" onclick="toggleSeries(${series.id})">
@@ -878,7 +880,7 @@
                             </div>
                         </div>
                         <div class="series-actions" onclick="event.stopPropagation()">
-                            <button onclick="verifySeries(${series.id})" class="secondary">
+                            <button onclick="console.log('Button clicked for series:', ${series.id}); verifySeries(${series.id})" class="secondary">
                                 ✓ Verify All Seasons
                             </button>
                         </div>
@@ -991,18 +993,26 @@
 
         // Verify entire series
         async function verifySeries(seriesId) {
+            console.log('verifySeries called with ID:', seriesId);
             const series = shows.find(s => s.id === seriesId);
-            if (!series) return;
-            
-            if (!confirm(`Start verification for "${series.title}"?\n\nThis will check all episodes in all seasons.`)) {
+            if (!series) {
+                console.error('Series not found:', seriesId);
                 return;
             }
             
+            console.log('Found series:', series.title);
+            if (!confirm(`Start verification for "${series.title}"?\n\nThis will check all episodes in all seasons.`)) {
+                console.log('User cancelled verification');
+                return;
+            }
+            
+            console.log('Starting verification for series:', seriesId);
             try {
                 const response = await fetch(`/api/shows/${seriesId}/verify`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
+                console.log('Verification response:', response.status);
                 
                 if (!response.ok) {
                     const error = await response.json();
