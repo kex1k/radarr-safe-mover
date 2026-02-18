@@ -521,15 +521,21 @@ def verify_series(series_id):
 def verify_season(series_id, season_number):
     """Start verification for specific season"""
     try:
+        logger.info(f"Verify season endpoint called: series={series_id}, season={season_number}")
         sonarr = get_sonarr_client()
+        logger.info("Getting seasons data from Sonarr")
         seasons_data = sonarr.get_seasons_with_files(series_id)
+        logger.info(f"Got {len(seasons_data)} seasons")
         
         # Find the specific season
         season_data = next((s for s in seasons_data if s['seasonNumber'] == season_number), None)
         if not season_data:
+            logger.error(f"Season {season_number} not found")
             return jsonify({'error': f'Season {season_number} not found'}), 404
         
+        logger.info(f"Starting verification for season {season_number}")
         verification_handler.start_verification(series_id, season_number, seasons_data)
+        logger.info("Verification started successfully")
         
         return jsonify({
             'success': True,
