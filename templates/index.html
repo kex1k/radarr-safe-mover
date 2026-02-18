@@ -982,7 +982,7 @@
                             </div>
                         </div>
                         <div class="season-actions">
-                            <button onclick="verifySeason(${seriesId}, ${season.seasonNumber})" class="secondary">
+                            <button onclick="console.log('Season button clicked:', ${seriesId}, ${season.seasonNumber}); verifySeason(${seriesId}, ${season.seasonNumber})" class="secondary">
                                 ✓ Verify
                             </button>
                         </div>
@@ -1028,18 +1028,26 @@
 
         // Verify specific season
         async function verifySeason(seriesId, seasonNumber) {
+            console.log('verifySeason called:', seriesId, seasonNumber);
             const series = shows.find(s => s.id === seriesId);
-            if (!series) return;
-            
-            if (!confirm(`Start verification for "${series.title}" Season ${seasonNumber}?`)) {
+            if (!series) {
+                console.error('Series not found:', seriesId);
                 return;
             }
             
+            console.log('Found series:', series.title);
+            if (!confirm(`Start verification for "${series.title}" Season ${seasonNumber}?`)) {
+                console.log('User cancelled season verification');
+                return;
+            }
+            
+            console.log('Starting season verification:', seriesId, seasonNumber);
             try {
                 const response = await fetch(`/api/shows/${seriesId}/seasons/${seasonNumber}/verify`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
+                console.log('Season verification response:', response.status);
                 
                 if (!response.ok) {
                     const error = await response.json();
