@@ -30,15 +30,22 @@ class VerificationStorage:
                 with open(self.storage_file, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                logger.error(f"Error loading verification data: {e}")
+                logger.error(f"Error loading verification data: {e}", exc_info=True)
                 return {'series': {}, 'active_verification': None}
+        logger.info(f"Verification storage file does not exist, creating: {self.storage_file}")
         return {'series': {}, 'active_verification': None}
     
     def save(self):
         """Save verification data to file"""
-        with self.lock:
-            with open(self.storage_file, 'w') as f:
-                json.dump(self.data, f, indent=2)
+        try:
+            with self.lock:
+                logger.info(f"Saving verification data to {self.storage_file}")
+                with open(self.storage_file, 'w') as f:
+                    json.dump(self.data, f, indent=2)
+                logger.info("Verification data saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving verification data: {e}", exc_info=True)
+            raise
     
     def get_series_data(self, series_id):
         """Get verification data for a series"""
@@ -235,11 +242,16 @@ class VerificationHandler:
     
     def start_verification(self, series_id, season_number, seasons_data):
         """Start verification process in background thread"""
+        logger.info(f"start_verification called: series={series_id}, season={season_number}")
+        
         if self.verification_thread and self.verification_thread.is_alive():
+            logger.error("Verification already in progress")
             raise ValueError("Verification already in progress")
         
+        logger.info("Clearing stop flag")
         self.stop_flag.clear()
         
+        logger.info("Setting active verification")
         # Set active verification
         self.storage.set_active_verification({
             'series_id': series_id,
@@ -250,22 +262,35 @@ class VerificationHandler:
             'total_files': 0,
             'last_duration': 0
         })
+        logger.info("Active verification set")
         
         def verification_worker():
             try:
+                logger.info(f"Verification worker started for series {series_id}, season {season_number}")
                 if season_number is None:
                     # Verify entire series
+                    logger.info("Verifying entire series")
                     self.verify_series(series_id, seasons_data)
                 else:
                     # Verify specific season
+                    logger.info(f"Finding season {season_number} in data")
                     season_data = next((s for s in seasons_data if s['seasonNumber'] == season_number), None)
                     if season_data:
+                        logger.info(f"Found season data with {len(season_data['files'])} files")
                         self.verify_season(series_id, season_number, season_data['files'])
+                    else:
+                        logger.error(f"Season {season_number} not found in data")
+            except Exception as e:
+                logger.error(f"Error in verification worker: {e}", exc_info=True)
             finally:
+                logger.info("Clearing active verification")
                 self.storage.clear_active_verification()
         
+        logger.info("Creating verification thread")
         self.verification_thread = threading.Thread(target=verification_worker, daemon=True)
+        logger.info("Starting verification thread")
         self.verification_thread.start()
+        logger.info("Verification thread started")
     
     def stop_verification(self):
         """Stop active verification"""
