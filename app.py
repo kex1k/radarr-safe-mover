@@ -10,6 +10,7 @@ import os
 # Core modules
 from core.config import ConfigManager
 from core.radarr import RadarrClient
+from core.sonarr import SonarrClient
 from core.queue import OperationQueue
 
 # Operation-specific modules
@@ -17,6 +18,7 @@ from operations.copy_operation import CopyOperationHandler
 from operations.convert_operation import ConvertOperationHandler
 from operations.leftovers import LeftoversManager
 from operations.media_operations import get_audio_stream_info, find_dts_audio_track
+from operations.verify_operation import VerificationStorage, VerificationHandler
 
 # Configure logging
 logging.basicConfig(
@@ -48,6 +50,10 @@ unified_queue = OperationQueue(
 # Start unified queue processor
 unified_queue.start_processor()
 
+# Initialize verification components
+verification_storage = VerificationStorage('data/shows_verification.json')
+verification_handler = VerificationHandler(verification_storage)
+
 
 def get_radarr_client():
     """Get configured Radarr client"""
@@ -56,6 +62,16 @@ def get_radarr_client():
         config['radarr_host'],
         config['radarr_port'],
         config['radarr_api_key']
+    )
+
+
+def get_sonarr_client():
+    """Get configured Sonarr client"""
+    config = config_manager.config
+    return SonarrClient(
+        config['sonarr_host'],
+        config['sonarr_port'],
+        config['sonarr_api_key']
     )
 
 
@@ -92,32 +108,58 @@ def update_config():
         updates['radarr_port'] = data['radarr_port']
     if 'radarr_api_key' in data and data['radarr_api_key'] != '***':
         updates['radarr_api_key'] = data['radarr_api_key']
+    if 'sonarr_host' in data:
+        updates['sonarr_host'] = data['sonarr_host']
+    if 'sonarr_port' in data:
+        updates['sonarr_port'] = data['sonarr_port']
+    if 'sonarr_api_key' in data and data['sonarr_api_key'] != '***':
+        updates['sonarr_api_key'] = data['sonarr_api_key']
     
     config_manager.update(updates)
     
-    # Auto-detect root folders
+    result = {
+        'success': True,
+        'ssd_root_folder': config_manager.get('ssd_root_folder', ''),
+        'hdd_root_folder': config_manager.get('hdd_root_folder', ''),
+        'shows_hdd_root_folder': config_manager.get('shows_hdd_root_folder', '')
+    }
+    
+    # Auto-detect Radarr root folders
     try:
-        radarr = get_radarr_client()
-        root_folders = radarr.get_root_folders()
-        
-        # Look for SSD and HDD folders
-        for rf in root_folders:
-            path = rf['path']
-            if 'movies_ssd' in path.lower() or path.endswith('/media/movies_ssd'):
-                config_manager.set('ssd_root_folder', path)
-            elif 'movies_hdd' in path.lower() or path.endswith('/media/movies_hdd'):
-                config_manager.set('hdd_root_folder', path)
-        
-        return jsonify({
-            'success': True,
-            'root_folders': root_folders,
-            'ssd_root_folder': config_manager.get('ssd_root_folder', ''),
-            'hdd_root_folder': config_manager.get('hdd_root_folder', '')
-        })
-        
+        if updates.get('radarr_host') or updates.get('radarr_port') or updates.get('radarr_api_key'):
+            radarr = get_radarr_client()
+            root_folders = radarr.get_root_folders()
+            result['root_folders'] = root_folders
+            
+            # Look for SSD and HDD folders
+            for rf in root_folders:
+                path = rf['path']
+                if 'movies_ssd' in path.lower() or path.endswith('/media/movies_ssd'):
+                    config_manager.set('ssd_root_folder', path)
+                    result['ssd_root_folder'] = path
+                elif 'movies_hdd' in path.lower() or path.endswith('/media/movies_hdd'):
+                    config_manager.set('hdd_root_folder', path)
+                    result['hdd_root_folder'] = path
     except Exception as e:
-        logger.error(f"Error updating config: {str(e)}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.warning(f"Could not auto-detect Radarr folders: {str(e)}")
+    
+    # Auto-detect Sonarr root folders
+    try:
+        if updates.get('sonarr_host') or updates.get('sonarr_port') or updates.get('sonarr_api_key'):
+            sonarr = get_sonarr_client()
+            sonarr_root_folders = sonarr.get_root_folders()
+            result['sonarr_root_folders'] = sonarr_root_folders
+            
+            # Look for shows_hdd folder
+            for rf in sonarr_root_folders:
+                path = rf['path']
+                if 'shows_hdd' in path.lower() or path.endswith('/media/shows_hdd'):
+                    config_manager.set('shows_hdd_root_folder', path)
+                    result['shows_hdd_root_folder'] = path
+    except Exception as e:
+        logger.warning(f"Could not auto-detect Sonarr folders: {str(e)}")
+    
+    return jsonify(result)
 
 
 @app.route('/api/rootfolders', methods=['GET'])
@@ -396,6 +438,134 @@ def recopy_leftover():
     except Exception as e:
         logger.error(f"Error re-copying leftover: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# ROUTES - TV Shows (Sonarr)
+# ============================================================================
+
+@app.route('/api/shows', methods=['GET'])
+def get_shows():
+    """Get TV shows from shows_hdd root folder"""
+    try:
+        shows_hdd_root = config_manager.get('shows_hdd_root_folder')
+        if not shows_hdd_root:
+            return jsonify({'error': 'Shows HDD root folder not configured'}), 400
+        
+        sonarr = get_sonarr_client()
+        series_list = sonarr.filter_series_by_root_folder(shows_hdd_root)
+        
+        # Enrich with verification data
+        for series in series_list:
+            series_data = verification_storage.get_series_data(series['id'])
+            series['verification_data'] = series_data
+        
+        return jsonify(series_list)
+    except Exception as e:
+        logger.error(f"Error getting shows: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/shows/<int:series_id>/seasons', methods=['GET'])
+def get_series_seasons(series_id):
+    """Get seasons with files for a series"""
+    try:
+        sonarr = get_sonarr_client()
+        seasons = sonarr.get_seasons_with_files(series_id)
+        
+        # Enrich with verification data
+        series_data = verification_storage.get_series_data(series_id)
+        for season in seasons:
+            season_number = season['seasonNumber']
+            season_data = series_data['seasons'].get(str(season_number), {
+                'season_number': season_number,
+                'status': 'unchecked',
+                'verified_files': [],
+                'broken_files': [],
+                'last_checked': None,
+                'total_files': season['fileCount']
+            })
+            season['verification_data'] = season_data
+        
+        return jsonify(seasons)
+    except Exception as e:
+        logger.error(f"Error getting seasons: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/shows/<int:series_id>/verify', methods=['POST'])
+def verify_series(series_id):
+    """Start verification for entire series"""
+    try:
+        data = request.json or {}
+        
+        sonarr = get_sonarr_client()
+        seasons_data = sonarr.get_seasons_with_files(series_id)
+        
+        if not seasons_data:
+            return jsonify({'error': 'No seasons found for this series'}), 404
+        
+        verification_handler.start_verification(series_id, None, seasons_data)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Verification started for entire series'
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error starting series verification: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/shows/<int:series_id>/seasons/<int:season_number>/verify', methods=['POST'])
+def verify_season(series_id, season_number):
+    """Start verification for specific season"""
+    try:
+        sonarr = get_sonarr_client()
+        seasons_data = sonarr.get_seasons_with_files(series_id)
+        
+        # Find the specific season
+        season_data = next((s for s in seasons_data if s['seasonNumber'] == season_number), None)
+        if not season_data:
+            return jsonify({'error': f'Season {season_number} not found'}), 404
+        
+        verification_handler.start_verification(series_id, season_number, seasons_data)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Verification started for season {season_number}'
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error starting season verification: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verification/stop', methods=['POST'])
+def stop_verification():
+    """Stop active verification"""
+    try:
+        verification_handler.stop_verification()
+        return jsonify({
+            'success': True,
+            'message': 'Verification stopped'
+        })
+    except Exception as e:
+        logger.error(f"Error stopping verification: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verification/status', methods=['GET'])
+def get_verification_status():
+    """Get current verification status"""
+    try:
+        status = verification_handler.get_verification_status()
+        return jsonify(status if status else {'is_active': False})
+    except Exception as e:
+        logger.error(f"Error getting verification status: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 
 
 # ============================================================================

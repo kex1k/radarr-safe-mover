@@ -11,6 +11,7 @@ services:
       - ./temp:/app/temp
       - /path/to/your/ssd/movies:/media/movies_ssd
       - /path/to/your/hdd/movies:/media/movies_hdd
+      - /path/to/your/hdd/shows:/media/shows_hdd
     environment:
       - PYTHONUNBUFFERED=1
       - TEMP_DIR=/app/temp

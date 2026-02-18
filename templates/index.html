@@ -231,6 +231,146 @@
             color: white;
         }
 
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .badge.success {
+            background: #66BB6A;
+            color: white;
+        }
+
+        .badge.warning {
+            background: #FFA726;
+            color: white;
+        }
+
+        .badge.info {
+            background: #42A5F5;
+            color: white;
+        }
+
+        .series-item {
+            background: #333;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+
+        .series-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .series-title {
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .series-details {
+            font-size: 0.9em;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        .series-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .series-actions button {
+            flex: 1;
+            margin: 0;
+        }
+
+        .seasons-container {
+            display: none;
+            margin-top: 15px;
+            padding-left: 15px;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .seasons-container.expanded {
+            display: block;
+        }
+
+        .season-item {
+            background: #2a2a2a;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .season-info {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .season-title {
+            font-weight: bold;
+        }
+
+        .season-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .season-actions button {
+            padding: 5px 10px;
+            font-size: 0.85em;
+        }
+
+        .info-icon {
+            cursor: pointer;
+            background: #42A5F5;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            margin-left: 5px;
+        }
+
+        .verification-progress {
+            background: #2a2a2a;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border: 2px solid #4CAF50;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #66BB6A);
+            transition: width 0.3s ease;
+        }
+
         .empty-state {
             text-align: center;
             padding: 30px;
@@ -322,6 +462,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('safe-copy')">📦 Safe Copy</button>
             <button class="tab" onclick="switchTab('dts-converter')">🎵 DTS Converter</button>
+            <button class="tab" onclick="switchTab('tv-verification')">📺 TV Verification</button>
             <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
         </div>
 
@@ -346,6 +487,23 @@
                 </div>
                 <div id="leftovers-container">
                     <div class="empty-state">Click Refresh to scan for leftover files</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TV Verification Tab -->
+        <div id="tv-verification" class="tab-content">
+            <!-- Verification Progress -->
+            <div id="verification-progress-container"></div>
+
+            <!-- TV Shows Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>📺 TV Shows on HDD</span>
+                    <button onclick="refreshShows()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="shows-container">
+                    <div class="loading">Loading TV shows...</div>
                 </div>
             </div>
         </div>
@@ -384,6 +542,18 @@
                         <label>Radarr API Key:</label>
                         <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
                     </div>
+                    <div class="form-group">
+                        <label>Sonarr Host:</label>
+                        <input type="text" id="sonarr_host" placeholder="192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label>Sonarr Port:</label>
+                        <input type="text" id="sonarr_port" placeholder="8989">
+                    </div>
+                    <div class="form-group">
+                        <label>Sonarr API Key:</label>
+                        <input type="text" id="sonarr_api_key" placeholder="your-sonarr-api-key">
+                    </div>
                     <div class="form-group" id="ssd-folder-group" style="display: none;">
                         <label>SSD Root Folder (auto-detected):</label>
                         <input type="text" id="ssd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
@@ -391,6 +561,10 @@
                     <div class="form-group" id="hdd-folder-group" style="display: none;">
                         <label>HDD Root Folder (auto-detected):</label>
                         <input type="text" id="hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
+                    </div>
+                    <div class="form-group" id="shows-hdd-folder-group" style="display: none;">
+                        <label>Shows HDD Root Folder (auto-detected):</label>
+                        <input type="text" id="shows_hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
                     </div>
                     <button type="submit">💾 Save Settings</button>
                 </form>
@@ -436,6 +610,9 @@
         let dtsMovies = [];
         let queue = [];
         let history = [];
+        let shows = [];
+        let expandedSeries = {};
+        let verificationStatus = null;
         let leftovers = [];
 
         // Tab switching
@@ -654,6 +831,295 @@
         }
 
         // ============================================================================
+        // ============================================================================
+        // TV VERIFICATION TAB FUNCTIONS
+        // ============================================================================
+
+        // Refresh TV shows list
+        async function refreshShows() {
+            const container = document.getElementById('shows-container');
+            container.innerHTML = '<div class="loading">Loading TV shows...</div>';
+            
+            try {
+                const response = await fetch('/api/shows');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load shows');
+                }
+                
+                shows = await response.json();
+                renderShows();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render TV shows list
+        function renderShows() {
+            const container = document.getElementById('shows-container');
+            
+            if (shows.length === 0) {
+                container.innerHTML = '<div class="empty-state">No TV shows found on HDD</div>';
+                return;
+            }
+            
+            container.innerHTML = shows.map(series => {
+                const isExpanded = expandedSeries[series.id] || false;
+                const arrow = isExpanded ? '▼' : '▶';
+                
+                return `
+                    <div class="series-item">
+                        <div class="series-header" onclick="toggleSeries(${series.id})">
+                            <div>
+                                <div class="series-title">${arrow} ${series.title} (${series.year || 'N/A'})</div>
+                                <div class="series-details">
+                                    📺 ${series.seasonCount || 0} seasons
+                                </div>
+                            </div>
+                        </div>
+                        <div class="series-actions">
+                            <button onclick="verifySeries(${series.id})" class="secondary">
+                                ✓ Verify All Seasons
+                            </button>
+                        </div>
+                        <div id="seasons-${series.id}" class="seasons-container ${isExpanded ? 'expanded' : ''}">
+                            <div class="loading">Loading seasons...</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Toggle series expansion
+        async function toggleSeries(seriesId) {
+            expandedSeries[seriesId] = !expandedSeries[seriesId];
+            
+            if (expandedSeries[seriesId]) {
+                await loadSeasons(seriesId);
+            }
+            
+            renderShows();
+        }
+
+        // Load seasons for a series
+        async function loadSeasons(seriesId) {
+            const container = document.getElementById(`seasons-${seriesId}`);
+            if (!container) return;
+            
+            try {
+                const response = await fetch(`/api/shows/${seriesId}/seasons`);
+                if (!response.ok) {
+                    throw new Error('Failed to load seasons');
+                }
+                
+                const seasons = await response.json();
+                renderSeasons(seriesId, seasons);
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render seasons for a series
+        function renderSeasons(seriesId, seasons) {
+            const container = document.getElementById(`seasons-${seriesId}`);
+            if (!container) return;
+            
+            if (seasons.length === 0) {
+                container.innerHTML = '<div class="empty-state">No seasons found</div>';
+                return;
+            }
+            
+            container.innerHTML = seasons.map(season => {
+                const vData = season.verification_data || {};
+                const status = vData.status || 'unchecked';
+                const verifiedCount = (vData.verified_files || []).length;
+                const brokenCount = (vData.broken_files || []).length;
+                const totalFiles = season.fileCount;
+                const lastChecked = vData.last_checked ? new Date(vData.last_checked).toLocaleString() : 'Never';
+                
+                let statusBadge = '';
+                if (status === 'completed' && brokenCount === 0) {
+                    statusBadge = `<span class="badge success">✓ ${verifiedCount} files OK</span>`;
+                } else if (status === 'completed' && brokenCount > 0) {
+                    statusBadge = `<span class="badge warning">⚠ ${brokenCount} broken</span>`;
+                } else if (status === 'checking') {
+                    statusBadge = `<span class="badge info">⏳ Checking...</span>`;
+                } else if (status === 'paused') {
+                    statusBadge = `<span class="badge warning">⏸ Paused</span>`;
+                }
+                
+                const infoButton = brokenCount > 0 ? `
+                    <span class="info-icon" onclick="showBrokenFiles(${seriesId}, ${season.seasonNumber})" title="Show broken files">i</span>
+                ` : '';
+                
+                return `
+                    <div class="season-item">
+                        <div class="season-info">
+                            <div class="season-title">
+                                Season ${season.seasonNumber}
+                                ${statusBadge}
+                                ${infoButton}
+                            </div>
+                            <div class="season-details" style="font-size: 0.85em; color: #aaa; margin-top: 3px;">
+                                📄 ${totalFiles} files | Last checked: ${lastChecked}
+                            </div>
+                        </div>
+                        <div class="season-actions">
+                            <button onclick="verifySeason(${seriesId}, ${season.seasonNumber})" class="secondary">
+                                ✓ Verify
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Verify entire series
+        async function verifySeries(seriesId) {
+            const series = shows.find(s => s.id === seriesId);
+            if (!series) return;
+            
+            if (!confirm(`Start verification for "${series.title}"?\n\nThis will check all episodes in all seasons.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/shows/${seriesId}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start verification');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Verify specific season
+        async function verifySeason(seriesId, seasonNumber) {
+            const series = shows.find(s => s.id === seriesId);
+            if (!series) return;
+            
+            if (!confirm(`Start verification for "${series.title}" Season ${seasonNumber}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/shows/${seriesId}/seasons/${seasonNumber}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start verification');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Stop verification
+        async function stopVerification() {
+            if (!confirm('Stop the current verification?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/verification/stop', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to stop verification');
+                }
+                
+                alert('✅ Verification stopped');
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Show broken files alert
+        async function showBrokenFiles(seriesId, seasonNumber) {
+            try {
+                const response = await fetch(`/api/shows/${seriesId}/seasons`);
+                const seasons = await response.json();
+                const season = seasons.find(s => s.seasonNumber === seasonNumber);
+                
+                if (!season || !season.verification_data) return;
+                
+                const brokenFiles = season.verification_data.broken_files || [];
+                if (brokenFiles.length === 0) {
+                    alert('No broken files found');
+                    return;
+                }
+                
+                const fileList = brokenFiles.map(f => {
+                    const episodes = f.episodeNumbers ? f.episodeNumbers.join(', ') : '?';
+                    return `Season ${f.seasonNumber} Episode ${episodes}`;
+                }).join('\n');
+                
+                alert(`Broken files in Season ${seasonNumber}:\n\n${fileList}`);
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Refresh verification status
+        async function refreshVerificationStatus() {
+            try {
+                const response = await fetch('/api/verification/status');
+                verificationStatus = await response.json();
+                renderVerificationProgress();
+            } catch (error) {
+                console.error('Error refreshing verification status:', error);
+            }
+        }
+
+        // Render verification progress
+        function renderVerificationProgress() {
+            const container = document.getElementById('verification-progress-container');
+            
+            if (!verificationStatus || !verificationStatus.is_active) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            const progress = verificationStatus.current_index / verificationStatus.total_files * 100;
+            const remainingTime = verificationStatus.estimated_remaining;
+            const remainingMinutes = Math.ceil(remainingTime / 60);
+            
+            container.innerHTML = `
+                <div class="verification-progress">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div style="font-weight: bold;">⏳ Verification in Progress</div>
+                        <button onclick="stopVerification()" class="danger" style="width: auto; padding: 5px 15px; margin: 0;">
+                            ⏹ Stop
+                        </button>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${progress}%"></div>
+                    </div>
+                    <div style="font-size: 0.9em; color: #aaa;">
+                        <div>📄 ${verificationStatus.current_index} / ${verificationStatus.total_files} files checked</div>
+                        <div>⏱ Last file: ${verificationStatus.last_duration.toFixed(1)}s | Estimated remaining: ~${remainingMinutes} min</div>
+                        <div style="font-size: 0.85em; margin-top: 5px;">Current: ${verificationStatus.current_file || 'Starting...'}</div>
+                    </div>
+                </div>
+            `;
+        }
+
         // DTS CONVERTER TAB FUNCTIONS
         // ============================================================================
 
@@ -974,6 +1440,9 @@
                 document.getElementById('radarr_host').value = config.radarr_host || '';
                 document.getElementById('radarr_port').value = config.radarr_port || '';
                 document.getElementById('radarr_api_key').value = config.radarr_api_key || '';
+                document.getElementById('sonarr_host').value = config.sonarr_host || '';
+                document.getElementById('sonarr_port').value = config.sonarr_port || '';
+                document.getElementById('sonarr_api_key').value = config.sonarr_api_key || '';
                 
                 // Display root folders if they exist
                 if (config.ssd_root_folder) {
@@ -983,6 +1452,10 @@
                 if (config.hdd_root_folder) {
                     document.getElementById('hdd_root_folder').value = config.hdd_root_folder;
                     document.getElementById('hdd-folder-group').style.display = 'flex';
+                }
+                if (config.shows_hdd_root_folder) {
+                    document.getElementById('shows_hdd_root_folder').value = config.shows_hdd_root_folder;
+                    document.getElementById('shows-hdd-folder-group').style.display = 'flex';
                 }
             } catch (error) {
                 console.error('Error loading config:', error);
@@ -999,7 +1472,10 @@
             const config = {
                 radarr_host: document.getElementById('radarr_host').value,
                 radarr_port: document.getElementById('radarr_port').value,
-                radarr_api_key: document.getElementById('radarr_api_key').value
+                radarr_api_key: document.getElementById('radarr_api_key').value,
+                sonarr_host: document.getElementById('sonarr_host').value,
+                sonarr_port: document.getElementById('sonarr_port').value,
+                sonarr_api_key: document.getElementById('sonarr_api_key').value
             };
             
             try {
@@ -1021,6 +1497,10 @@
                         document.getElementById('hdd_root_folder').value = result.hdd_root_folder;
                         document.getElementById('hdd-folder-group').style.display = 'flex';
                     }
+                    if (result.shows_hdd_root_folder) {
+                        document.getElementById('shows_hdd_root_folder').value = result.shows_hdd_root_folder;
+                        document.getElementById('shows-hdd-folder-group').style.display = 'flex';
+                    }
                     
                     messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully! Root folders auto-detected.</div>';
                     await loadConfig();
@@ -1036,10 +1516,11 @@
         // AUTO-REFRESH AND INITIALIZATION
         // ============================================================================
 
-        // Auto-refresh queue and history every 2 seconds
+        // Auto-refresh queue, history, and verification status every 2 seconds
         setInterval(() => {
             refreshQueue();
             refreshHistory();
+            refreshVerificationStatus();
         }, 2000);
 
         // Initialize on page load
