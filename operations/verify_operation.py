@@ -38,11 +38,10 @@ class VerificationStorage:
     def save(self):
         """Save verification data to file"""
         try:
-            with self.lock:
-                logger.info(f"Saving verification data to {self.storage_file}")
-                with open(self.storage_file, 'w') as f:
-                    json.dump(self.data, f, indent=2)
-                logger.info("Verification data saved successfully")
+            logger.info(f"Saving verification data to {self.storage_file}")
+            with open(self.storage_file, 'w') as f:
+                json.dump(self.data, f, indent=2)
+            logger.info("Verification data saved successfully")
         except Exception as e:
             logger.error(f"Error saving verification data: {e}", exc_info=True)
             raise
@@ -57,9 +56,8 @@ class VerificationStorage:
     
     def update_series_data(self, series_id, series_data):
         """Update verification data for a series"""
-        with self.lock:
-            self.data['series'][str(series_id)] = series_data
-            self.save()
+        self.data['series'][str(series_id)] = series_data
+        self.save()
     
     def get_season_data(self, series_id, season_number):
         """Get verification data for a season"""
@@ -76,18 +74,16 @@ class VerificationStorage:
     
     def update_season_data(self, series_id, season_number, season_data):
         """Update verification data for a season"""
-        with self.lock:
-            series_data = self.get_series_data(series_id)
-            series_data['seasons'][str(season_number)] = season_data
-            series_data['last_updated'] = datetime.now().isoformat()
-            self.data['series'][str(series_id)] = series_data
-            self.save()
+        series_data = self.get_series_data(series_id)
+        series_data['seasons'][str(season_number)] = season_data
+        series_data['last_updated'] = datetime.now().isoformat()
+        self.data['series'][str(series_id)] = series_data
+        self.save()
     
     def set_active_verification(self, verification_data):
         """Set active verification process"""
-        with self.lock:
-            self.data['active_verification'] = verification_data
-            self.save()
+        self.data['active_verification'] = verification_data
+        self.save()
     
     def get_active_verification(self):
         """Get active verification process"""
@@ -95,9 +91,8 @@ class VerificationStorage:
     
     def clear_active_verification(self):
         """Clear active verification process"""
-        with self.lock:
-            self.data['active_verification'] = None
-            self.save()
+        self.data['active_verification'] = None
+        self.save()
 
 
 class VerificationHandler:
