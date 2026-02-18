@@ -1010,7 +1010,8 @@
             try {
                 const response = await fetch(`/api/shows/${seriesId}/verify`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
                 console.log('Verification response:', response.status);
                 
@@ -1045,7 +1046,8 @@
             try {
                 const response = await fetch(`/api/shows/${seriesId}/seasons/${seasonNumber}/verify`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
                 });
                 console.log('Season verification response:', response.status);
                 

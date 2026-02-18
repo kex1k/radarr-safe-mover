@@ -496,7 +496,7 @@ def get_series_seasons(series_id):
 def verify_series(series_id):
     """Start verification for entire series"""
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         
         sonarr = get_sonarr_client()
         seasons_data = sonarr.get_seasons_with_files(series_id)
@@ -521,6 +521,7 @@ def verify_series(series_id):
 def verify_season(series_id, season_number):
     """Start verification for specific season"""
     try:
+        data = request.get_json(silent=True) or {}
         logger.info(f"Verify season endpoint called: series={series_id}, season={season_number}")
         sonarr = get_sonarr_client()
         logger.info("Getting seasons data from Sonarr")

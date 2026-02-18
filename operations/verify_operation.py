@@ -157,6 +157,21 @@ class VerificationHandler:
         season_data['status'] = 'checking'
         self.storage.update_season_data(series_id, season_number, season_data)
         
+        # Build set of already verified file paths (checked within last 24 hours)
+        verified_paths = set()
+        if season_data.get('verified_files'):
+            from datetime import datetime, timedelta
+            cutoff_time = datetime.now() - timedelta(days=1)
+            for vf in season_data['verified_files']:
+                checked_at = vf.get('checked_at')
+                if checked_at:
+                    try:
+                        checked_time = datetime.fromisoformat(checked_at)
+                        if checked_time > cutoff_time:
+                            verified_paths.add(vf['path'])
+                    except:
+                        pass
+        
         # Find starting point
         start_index = 0
         if season_data.get('last_checked_file'):
@@ -176,6 +191,11 @@ class VerificationHandler:
             
             file_info = files[i]
             file_path = file_info['path']
+            
+            # Skip if already verified within last 24 hours
+            if file_path in verified_paths:
+                logger.info(f"Skipping {file_path} - verified within last 24 hours")
+                continue
             
             # Update active verification progress
             active = self.storage.get_active_verification()
