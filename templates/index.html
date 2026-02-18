@@ -894,11 +894,26 @@
         async function toggleSeries(seriesId) {
             expandedSeries[seriesId] = !expandedSeries[seriesId];
             
+            const container = document.getElementById(`seasons-${seriesId}`);
+            if (!container) return;
+            
             if (expandedSeries[seriesId]) {
+                container.classList.add('expanded');
+                container.innerHTML = '<div class="loading">Loading seasons...</div>';
                 await loadSeasons(seriesId);
+            } else {
+                container.classList.remove('expanded');
             }
             
-            renderShows();
+            // Update arrow only
+            const series = shows.find(s => s.id === seriesId);
+            if (series) {
+                const arrow = expandedSeries[seriesId] ? '▼' : '▶';
+                const titleElement = container.closest('.series-item').querySelector('.series-title');
+                if (titleElement) {
+                    titleElement.innerHTML = `${arrow} ${series.title} (${series.year || 'N/A'})`;
+                }
+            }
         }
 
         // Load seasons for a series

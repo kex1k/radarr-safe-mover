@@ -56,24 +56,44 @@ class SonarrClient:
     
     def get_seasons_with_files(self, series_id):
         """Get seasons with their episode files grouped"""
-        episode_files = self.get_episode_files(series_id)
-        
-        # Group files by season
-        seasons = {}
-        for ep_file in episode_files:
-            season_num = ep_file.get('seasonNumber', 0)
-            if season_num not in seasons:
-                seasons[season_num] = []
-            seasons[season_num].append(ep_file)
-        
-        # Convert to list format with season info
-        season_list = []
-        for season_num in sorted(seasons.keys()):
-            files = seasons[season_num]
-            season_list.append({
-                'seasonNumber': season_num,
-                'fileCount': len(files),
-                'files': files
-            })
-        
-        return season_list
+        try:
+            # Get series info to know all seasons
+            series = self.get_series(series_id)
+            logger.info(f"Getting seasons for series: {series.get('title')} (ID: {series_id})")
+            
+            # Get episode files
+            episode_files = self.get_episode_files(series_id)
+            logger.info(f"Found {len(episode_files)} episode files for series {series_id}")
+            
+            # Get all seasons from series info
+            all_seasons = series.get('seasons', [])
+            logger.info(f"Series has {len(all_seasons)} seasons defined")
+            
+            # Group files by season
+            seasons_with_files = {}
+            for ep_file in episode_files:
+                season_num = ep_file.get('seasonNumber', 0)
+                if season_num not in seasons_with_files:
+                    seasons_with_files[season_num] = []
+                seasons_with_files[season_num].append(ep_file)
+            
+            # Build season list including seasons without files
+            season_list = []
+            for season in all_seasons:
+                season_num = season.get('seasonNumber', 0)
+                files = seasons_with_files.get(season_num, [])
+                
+                # Only include seasons that have files
+                if files:
+                    season_list.append({
+                        'seasonNumber': season_num,
+                        'fileCount': len(files),
+                        'files': files
+                    })
+            
+            logger.info(f"Returning {len(season_list)} seasons with files")
+            return season_list
+            
+        except Exception as e:
+            logger.error(f"Error getting seasons for series {series_id}: {str(e)}", exc_info=True)
+            raise
