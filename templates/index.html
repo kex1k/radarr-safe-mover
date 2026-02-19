@@ -1101,9 +1101,13 @@
                 }
                 
                 const fileList = brokenFiles.map(f => {
-                    const episodes = f.episodeNumbers ? f.episodeNumbers.join(', ') : '?';
-                    return `Season ${f.seasonNumber} Episode ${episodes}`;
-                }).join('\n');
+                    const seasonNum = f.seasonNumber || '?';
+                    const episodes = (f.episodeNumbers && f.episodeNumbers.length > 0)
+                        ? f.episodeNumbers.join(', ')
+                        : '?';
+                    const fileName = f.relativePath || f.path || 'Unknown file';
+                    return `Season ${seasonNum} Episode ${episodes}\n  File: ${fileName}`;
+                }).join('\n\n');
                 
                 alert(`Broken files in Season ${seasonNumber}:\n\n${fileList}`);
             } catch (error) {
