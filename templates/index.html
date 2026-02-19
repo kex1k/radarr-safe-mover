@@ -1101,12 +1101,21 @@
                 }
                 
                 const fileList = brokenFiles.map(f => {
-                    const seasonNum = f.seasonNumber || '?';
-                    const episodes = (f.episodeNumbers && f.episodeNumbers.length > 0)
-                        ? f.episodeNumbers.join(', ')
-                        : '?';
                     const fileName = f.relativePath || f.path || 'Unknown file';
-                    return `Season ${seasonNum} Episode ${episodes}\n  File: ${fileName}`;
+                    // Extract episode number from filename if not in metadata
+                    let episodeInfo = '';
+                    if (f.episodeNumbers && f.episodeNumbers.length > 0) {
+                        episodeInfo = `Episode ${f.episodeNumbers.join(', ')}`;
+                    } else {
+                        // Try to extract from filename (e.g., S03E13)
+                        const match = fileName.match(/S(\d+)E(\d+)/i);
+                        if (match) {
+                            episodeInfo = `Episode ${parseInt(match[2])}`;
+                        } else {
+                            episodeInfo = 'Episode ?';
+                        }
+                    }
+                    return `${episodeInfo}\n  ${fileName}`;
                 }).join('\n\n');
                 
                 alert(`Broken files in Season ${seasonNumber}:\n\n${fileList}`);
