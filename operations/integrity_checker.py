@@ -266,6 +266,54 @@ class IntegrityVerifier:
         self.stop_flag = threading.Event()
         self.verify_thread = None
     
+    def _is_critical_error(self, error_msg):
+        """Проверить является ли ошибка критической (реальное повреждение)"""
+        # Паттерны ложных срабатываний (игнорируем)
+        false_positive_patterns = [
+            'non monotonically increasing dts',  # проблема timestamps, не повреждение
+            'Duplicate POC in a sequence',       # нестандартный порядок кадров HEVC
+            'Application provided invalid',      # связано с DTS
+        ]
+        
+        # Паттерны реальных повреждений (критические)
+        critical_patterns = [
+            'moov atom not found',               # сломанная структура MP4/MOV
+            'Invalid NAL unit size',             # битый H.264/H.265 поток
+            'Truncated',                         # обрезанный файл
+            'End of file',                       # неожиданный конец файла
+            'No such file or directory',         # файл не найден
+            'Permission denied',                 # нет доступа
+            'Input/output error',                # ошибка чтения с диска
+        ]
+        
+        error_lower = error_msg.lower()
+        
+        # Проверяем критические паттерны
+        for pattern in critical_patterns:
+            if pattern.lower() in error_lower:
+                return True
+        
+        # Проверяем ложные срабатывания
+        for pattern in false_positive_patterns:
+            if pattern.lower() in error_lower:
+                return False
+        
+        # Если есть "Error" но не в списке ложных - считаем критической
+        # Но только если это не просто "Error submitting packet" после DTS ошибок
+        if 'error submitting packet to decoder' in error_lower:
+            # Это следствие DTS/POC ошибок, игнорируем
+            return False
+        
+        if 'error processing packet in decoder' in error_lower:
+            # Это тоже следствие DTS/POC ошибок
+            return False
+        
+        # Если есть другие ошибки - считаем критическими
+        if 'error' in error_lower and 'warning' not in error_lower:
+            return True
+        
+        return False
+    
     def _ffmpeg_check(self, filepath):
         """Полная проверка через ffmpeg с декодированием видео"""
         try:
@@ -293,7 +341,14 @@ class IntegrityVerifier:
             
             if result.returncode != 0:
                 error_msg = result.stderr.decode('utf-8', errors='ignore')
-                return False, error_msg
+                
+                # Фильтруем ошибки - проверяем только критические
+                if self._is_critical_error(error_msg):
+                    return False, error_msg
+                else:
+                    # Некритическая ошибка (DTS/POC) - считаем файл OK
+                    logger.debug(f"Non-critical ffmpeg errors ignored for {filepath}: {error_msg[:200]}")
+                    return True, None
             
             return True, None
                 
@@ -523,7 +578,7 @@ class IntegrityReChecker:
                 all_files = self.storage.get_all_files()
                 files_to_check = [
                     (path, data) for path, data in all_files.items()
-                    if data.get('checksum_status') == 'verified'
+                    if data.get('checksum_status') in ['verified', 'ok']
                 ]
                 
                 if not files_to_check:
