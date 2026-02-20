@@ -10,7 +10,6 @@ import os
 # Core modules
 from core.config import ConfigManager
 from core.radarr import RadarrClient
-from core.sonarr import SonarrClient
 from core.queue import OperationQueue
 
 # Operation-specific modules
@@ -18,7 +17,12 @@ from operations.copy_operation import CopyOperationHandler
 from operations.convert_operation import ConvertOperationHandler
 from operations.leftovers import LeftoversManager
 from operations.media_operations import get_audio_stream_info, find_dts_audio_track
-from operations.verify_operation import VerificationStorage, VerificationHandler
+from operations.integrity_checker import (
+    IntegrityStorage,
+    IntegrityScanner,
+    IntegrityVerifier,
+    IntegrityReChecker
+)
 
 # Configure logging
 logging.basicConfig(
@@ -50,9 +54,11 @@ unified_queue = OperationQueue(
 # Start unified queue processor
 unified_queue.start_processor()
 
-# Initialize verification components
-verification_storage = VerificationStorage('data/shows_verification.json')
-verification_handler = VerificationHandler(verification_storage)
+# Initialize integrity checker components
+integrity_storage = IntegrityStorage('data/media_integrity.json')
+integrity_scanner = IntegrityScanner(integrity_storage)
+integrity_verifier = IntegrityVerifier(integrity_storage)
+integrity_rechecker = IntegrityReChecker(integrity_storage)
 
 
 def get_radarr_client():
@@ -65,14 +71,6 @@ def get_radarr_client():
     )
 
 
-def get_sonarr_client():
-    """Get configured Sonarr client"""
-    config = config_manager.config
-    return SonarrClient(
-        config['sonarr_host'],
-        config['sonarr_port'],
-        config['sonarr_api_key']
-    )
 
 
 # ============================================================================
@@ -108,20 +106,13 @@ def update_config():
         updates['radarr_port'] = data['radarr_port']
     if 'radarr_api_key' in data and data['radarr_api_key'] != '***':
         updates['radarr_api_key'] = data['radarr_api_key']
-    if 'sonarr_host' in data:
-        updates['sonarr_host'] = data['sonarr_host']
-    if 'sonarr_port' in data:
-        updates['sonarr_port'] = data['sonarr_port']
-    if 'sonarr_api_key' in data and data['sonarr_api_key'] != '***':
-        updates['sonarr_api_key'] = data['sonarr_api_key']
     
     config_manager.update(updates)
     
     result = {
         'success': True,
         'ssd_root_folder': config_manager.get('ssd_root_folder', ''),
-        'hdd_root_folder': config_manager.get('hdd_root_folder', ''),
-        'shows_hdd_root_folder': config_manager.get('shows_hdd_root_folder', '')
+        'hdd_root_folder': config_manager.get('hdd_root_folder', '')
     }
     
     # Auto-detect Radarr root folders
@@ -145,17 +136,7 @@ def update_config():
     
     # Auto-detect Sonarr root folders
     try:
-        if updates.get('sonarr_host') or updates.get('sonarr_port') or updates.get('sonarr_api_key'):
-            sonarr = get_sonarr_client()
-            sonarr_root_folders = sonarr.get_root_folders()
-            result['sonarr_root_folders'] = sonarr_root_folders
-            
-            # Look for shows_hdd folder
-            for rf in sonarr_root_folders:
-                path = rf['path']
-                if 'shows_hdd' in path.lower() or path.endswith('/media/shows_hdd'):
-                    config_manager.set('shows_hdd_root_folder', path)
-                    result['shows_hdd_root_folder'] = path
+        pass
     except Exception as e:
         logger.warning(f"Could not auto-detect Sonarr folders: {str(e)}")
     
@@ -440,120 +421,105 @@ def recopy_leftover():
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
-# ROUTES - TV Shows (Sonarr)
+# ROUTES - Media Integrity Checker
 # ============================================================================
 
-@app.route('/api/shows', methods=['GET'])
-def get_shows():
-    """Get TV shows from shows_hdd root folder"""
+@app.route('/api/integrity/config', methods=['GET'])
+def get_integrity_config():
+    """Get integrity checker configuration"""
     try:
-        shows_hdd_root = config_manager.get('shows_hdd_root_folder')
-        if not shows_hdd_root:
-            return jsonify({'error': 'Shows HDD root folder not configured'}), 400
-        
-        sonarr = get_sonarr_client()
-        series_list = sonarr.filter_series_by_root_folder(shows_hdd_root)
-        
-        # Enrich with verification data
-        for series in series_list:
-            series_data = verification_storage.get_series_data(series['id'])
-            series['verification_data'] = series_data
-        
-        return jsonify(series_list)
+        config = integrity_storage.get_config()
+        return jsonify(config)
     except Exception as e:
-        logger.error(f"Error getting shows: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 400
+        logger.error(f"Error getting integrity config: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/shows/<int:series_id>/seasons', methods=['GET'])
-def get_series_seasons(series_id):
-    """Get seasons with files for a series"""
+@app.route('/api/integrity/config', methods=['POST'])
+def update_integrity_config():
+    """Update integrity checker configuration"""
     try:
-        sonarr = get_sonarr_client()
-        seasons = sonarr.get_seasons_with_files(series_id)
+        data = request.json
+        updates = {}
         
-        # Enrich with verification data
-        series_data = verification_storage.get_series_data(series_id)
-        for season in seasons:
-            season_number = season['seasonNumber']
-            season_data = series_data['seasons'].get(str(season_number), {
-                'season_number': season_number,
-                'status': 'unchecked',
-                'verified_files': [],
-                'broken_files': [],
-                'last_checked': None,
-                'total_files': season['fileCount']
-            })
-            season['verification_data'] = season_data
+        if 'watch_directories' in data:
+            updates['watch_directories'] = data['watch_directories']
+        if 'test_directory' in data:
+            updates['test_directory'] = data['test_directory']
         
-        return jsonify(seasons)
-    except Exception as e:
-        logger.error(f"Error getting seasons: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 400
-
-
-@app.route('/api/shows/<int:series_id>/verify', methods=['POST'])
-def verify_series(series_id):
-    """Start verification for entire series"""
-    try:
-        data = request.get_json(silent=True) or {}
-        
-        sonarr = get_sonarr_client()
-        seasons_data = sonarr.get_seasons_with_files(series_id)
-        
-        if not seasons_data:
-            return jsonify({'error': 'No seasons found for this series'}), 404
-        
-        verification_handler.start_verification(series_id, None, seasons_data)
+        integrity_storage.update_config(updates)
         
         return jsonify({
             'success': True,
-            'message': 'Verification started for entire series'
+            'config': integrity_storage.get_config()
+        })
+    except Exception as e:
+        logger.error(f"Error updating integrity config: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/scan/start', methods=['POST'])
+def start_integrity_scan():
+    """Start integrity scan"""
+    try:
+        integrity_scanner.start_scan()
+        return jsonify({
+            'success': True,
+            'message': 'Scan started'
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"Error starting series verification: {str(e)}", exc_info=True)
+        logger.error(f"Error starting scan: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/shows/<int:series_id>/seasons/<int:season_number>/verify', methods=['POST'])
-def verify_season(series_id, season_number):
-    """Start verification for specific season"""
+@app.route('/api/integrity/scan/stop', methods=['POST'])
+def stop_integrity_scan():
+    """Stop integrity scan"""
     try:
-        data = request.get_json(silent=True) or {}
-        logger.info(f"Verify season endpoint called: series={series_id}, season={season_number}")
-        sonarr = get_sonarr_client()
-        logger.info("Getting seasons data from Sonarr")
-        seasons_data = sonarr.get_seasons_with_files(series_id)
-        logger.info(f"Got {len(seasons_data)} seasons")
-        
-        # Find the specific season
-        season_data = next((s for s in seasons_data if s['seasonNumber'] == season_number), None)
-        if not season_data:
-            logger.error(f"Season {season_number} not found")
-            return jsonify({'error': f'Season {season_number} not found'}), 404
-        
-        logger.info(f"Starting verification for season {season_number}")
-        verification_handler.start_verification(series_id, season_number, seasons_data)
-        logger.info("Verification started successfully")
-        
+        integrity_scanner.stop_scan()
         return jsonify({
             'success': True,
-            'message': f'Verification started for season {season_number}'
+            'message': 'Scan stopped'
+        })
+    except Exception as e:
+        logger.error(f"Error stopping scan: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/scan/status', methods=['GET'])
+def get_integrity_scan_status():
+    """Get integrity scan status"""
+    try:
+        progress = integrity_storage.get_progress('scan')
+        return jsonify(progress)
+    except Exception as e:
+        logger.error(f"Error getting scan status: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/verify/start', methods=['POST'])
+def start_integrity_verify():
+    """Start integrity verification"""
+    try:
+        integrity_verifier.start_verify()
+        return jsonify({
+            'success': True,
+            'message': 'Verification started'
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"Error starting season verification: {str(e)}", exc_info=True)
+        logger.error(f"Error starting verification: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/verification/stop', methods=['POST'])
-def stop_verification():
-    """Stop active verification"""
+@app.route('/api/integrity/verify/stop', methods=['POST'])
+def stop_integrity_verify():
+    """Stop integrity verification"""
     try:
-        verification_handler.stop_verification()
+        integrity_verifier.stop_verify()
         return jsonify({
             'success': True,
             'message': 'Verification stopped'
@@ -563,16 +529,174 @@ def stop_verification():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/verification/status', methods=['GET'])
-def get_verification_status():
-    """Get current verification status"""
+@app.route('/api/integrity/verify/resume', methods=['POST'])
+def resume_integrity_verify():
+    """Resume integrity verification from first incomplete"""
     try:
-        status = verification_handler.get_verification_status()
-        return jsonify(status if status else {'is_active': False})
+        integrity_verifier.start_verify(resume=True)
+        return jsonify({
+            'success': True,
+            'message': 'Verification resumed'
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error resuming verification: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/verify/status', methods=['GET'])
+def get_integrity_verify_status():
+    """Get integrity verification status"""
+    try:
+        progress = integrity_storage.get_progress('verify')
+        return jsonify(progress)
     except Exception as e:
         logger.error(f"Error getting verification status: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/integrity/recheck/start', methods=['POST'])
+def start_integrity_recheck():
+    """Start integrity recheck"""
+    try:
+        integrity_rechecker.start_recheck()
+        return jsonify({
+            'success': True,
+            'message': 'Recheck started'
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error starting recheck: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/recheck/stop', methods=['POST'])
+def stop_integrity_recheck():
+    """Stop integrity recheck"""
+    try:
+        integrity_rechecker.stop_recheck()
+        return jsonify({
+            'success': True,
+            'message': 'Recheck stopped'
+        })
+    except Exception as e:
+        logger.error(f"Error stopping recheck: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/recheck/status', methods=['GET'])
+def get_integrity_recheck_status():
+    """Get integrity recheck status"""
+    try:
+        progress = integrity_storage.get_progress('recheck')
+        return jsonify(progress)
+    except Exception as e:
+        logger.error(f"Error getting recheck status: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/files', methods=['GET'])
+def get_integrity_files():
+    """Get all integrity files"""
+    try:
+        files = integrity_storage.get_all_files()
+        return jsonify(files)
+    except Exception as e:
+        logger.error(f"Error getting files: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/files/broken', methods=['GET'])
+def get_integrity_broken_files():
+    """Get broken files"""
+    try:
+        all_files = integrity_storage.get_all_files()
+        broken = {
+            path: data for path, data in all_files.items()
+            if data.get('verify_status') in ['broken', 'error']
+        }
+        return jsonify(broken)
+    except Exception as e:
+        logger.error(f"Error getting broken files: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/files/changed', methods=['GET'])
+def get_integrity_changed_files():
+    """Get files with changed checksums"""
+    try:
+        all_files = integrity_storage.get_all_files()
+        changed = {
+            path: data for path, data in all_files.items()
+            if data.get('checksum_status') == 'changed'
+        }
+        return jsonify(changed)
+    except Exception as e:
+        logger.error(f"Error getting changed files: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/stats', methods=['GET'])
+def get_integrity_stats():
+    """Get integrity statistics"""
+    try:
+        all_files = integrity_storage.get_all_files()
+        
+        stats = {
+            'total': len(all_files),
+            'verified_ok': 0,
+            'broken': 0,
+            'changed': 0,
+            'pending': 0
+        }
+        
+        for data in all_files.values():
+            verify_status = data.get('verify_status')
+            checksum_status = data.get('checksum_status')
+            
+            if verify_status in ['broken', 'error']:
+                stats['broken'] += 1
+            elif checksum_status == 'changed':
+                stats['changed'] += 1
+            elif verify_status == 'ok' and checksum_status in ['verified', 'ok']:
+                stats['verified_ok'] += 1
+            else:
+                stats['pending'] += 1
+        
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Error getting stats: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/reset', methods=['POST'])
+def reset_integrity_data():
+    """Reset all integrity data"""
+    try:
+        integrity_storage.reset_all()
+        return jsonify({
+            'success': True,
+            'message': 'All integrity data reset'
+        })
+    except Exception as e:
+        logger.error(f"Error resetting data: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/clear-reports', methods=['POST'])
+def clear_integrity_reports():
+    """Clear integrity reports (broken/changed statuses)"""
+    try:
+        integrity_storage.clear_reports()
+        return jsonify({
+            'success': True,
+            'message': 'Reports cleared'
+        })
+    except Exception as e:
+        logger.error(f"Error clearing reports: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================

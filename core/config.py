@@ -40,10 +40,6 @@ class ConfigManager:
             'radarr_api_key': '',
             'ssd_root_folder': '',
             'hdd_root_folder': '',
-            'sonarr_host': '',
-            'sonarr_port': '',
-            'sonarr_api_key': '',
-            'shows_hdd_root_folder': '',
             'path_mappings': []
         }
     
@@ -66,6 +62,4 @@ class ConfigManager:
         safe_config = self.config.copy()
         if safe_config.get('radarr_api_key'):
             safe_config['radarr_api_key'] = '***'
-        if safe_config.get('sonarr_api_key'):
-            safe_config['sonarr_api_key'] = '***'
         return safe_config

@@ -462,7 +462,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('safe-copy')">📦 Safe Copy</button>
             <button class="tab" onclick="switchTab('dts-converter')">🎵 DTS Converter</button>
-            <button class="tab" onclick="switchTab('tv-verification')">📺 TV Verification</button>
+            <button class="tab" onclick="switchTab('media-integrity')">🔍 Media Integrity</button>
             <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
         </div>
 
@@ -491,19 +491,84 @@
             </div>
         </div>
 
-        <!-- TV Verification Tab -->
-        <div id="tv-verification" class="tab-content">
-            <!-- Verification Progress -->
-            <div id="verification-progress-container"></div>
-
-            <!-- TV Shows Section -->
+        <!-- Media Integrity Tab -->
+        <div id="media-integrity" class="tab-content">
+            <!-- Configuration Section -->
             <div class="section">
                 <div class="section-title">
-                    <span>📺 TV Shows on HDD</span>
-                    <button onclick="refreshShows()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                    <span>⚙️ Configuration</span>
                 </div>
-                <div id="shows-container">
-                    <div class="loading">Loading TV shows...</div>
+                <div class="form-group">
+                    <label>Watch Directories (one per line):</label>
+                    <textarea id="integrity-directories" rows="3" style="padding: 10px; border: 1px solid #444; border-radius: 5px; background: #1a1a1a; color: #e0e0e0; font-size: 1em; font-family: monospace; resize: vertical;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Test Directory (optional, for testing):</label>
+                    <input type="text" id="integrity-test-directory" placeholder="/path/to/test/dir">
+                </div>
+                <button onclick="saveIntegrityConfig()" class="secondary">💾 Save Configuration</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button onclick="resetIntegrityData()" class="danger" style="flex: 1;">🗑️ Reset All Data</button>
+                    <button onclick="clearIntegrityReports()" class="warning" style="flex: 1;">🧹 Clear Reports</button>
+                </div>
+            </div>
+
+            <!-- Statistics Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>📊 Statistics</span>
+                    <button onclick="refreshIntegrityStats()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="integrity-stats-container">
+                    <div class="empty-state">Click Refresh to load statistics</div>
+                </div>
+            </div>
+
+            <!-- Pass 1: Scan Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>🔄 Pass 1: Scan (Fast Index)</span>
+                </div>
+                <div id="scan-status-container">
+                    <div class="empty-state">Not started</div>
+                </div>
+                <button onclick="startScan()" id="scan-start-btn">▶️ Start Scan</button>
+                <button onclick="stopScan()" id="scan-stop-btn" style="display: none;" class="danger">⏸️ Stop Scan</button>
+            </div>
+
+            <!-- Pass 2: Verify Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>✓ Pass 2: Verify (ffprobe + checksums)</span>
+                </div>
+                <div id="verify-status-container">
+                    <div class="empty-state">Not started</div>
+                </div>
+                <button onclick="startVerify()" id="verify-start-btn">▶️ Start Verify</button>
+                <button onclick="stopVerify()" id="verify-stop-btn" style="display: none;" class="danger">⏸️ Stop Verify</button>
+                <button onclick="resumeVerify()" id="verify-resume-btn" style="display: none;" class="secondary">▶️ Resume from First Incomplete</button>
+            </div>
+
+            <!-- Pass 3: Recheck Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>🔁 Pass 3: Recheck (verify checksums)</span>
+                </div>
+                <div id="recheck-status-container">
+                    <div class="empty-state">Not started</div>
+                </div>
+                <button onclick="startRecheck()" id="recheck-start-btn">▶️ Start Recheck</button>
+                <button onclick="stopRecheck()" id="recheck-stop-btn" style="display: none;" class="danger">⏸️ Stop Recheck</button>
+            </div>
+
+            <!-- Issues Section -->
+            <div class="section">
+                <div class="section-title">
+                    <span>⚠️ Issues</span>
+                    <button onclick="refreshIntegrityIssues()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                </div>
+                <div id="integrity-issues-container">
+                    <div class="empty-state">No issues found</div>
                 </div>
             </div>
         </div>
@@ -542,18 +607,6 @@
                         <label>Radarr API Key:</label>
                         <input type="text" id="radarr_api_key" placeholder="your-api-key" required>
                     </div>
-                    <div class="form-group">
-                        <label>Sonarr Host:</label>
-                        <input type="text" id="sonarr_host" placeholder="192.168.1.100">
-                    </div>
-                    <div class="form-group">
-                        <label>Sonarr Port:</label>
-                        <input type="text" id="sonarr_port" placeholder="8989">
-                    </div>
-                    <div class="form-group">
-                        <label>Sonarr API Key:</label>
-                        <input type="text" id="sonarr_api_key" placeholder="your-sonarr-api-key">
-                    </div>
                     <div class="form-group" id="ssd-folder-group" style="display: none;">
                         <label>SSD Root Folder (auto-detected):</label>
                         <input type="text" id="ssd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
@@ -561,10 +614,6 @@
                     <div class="form-group" id="hdd-folder-group" style="display: none;">
                         <label>HDD Root Folder (auto-detected):</label>
                         <input type="text" id="hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
-                    </div>
-                    <div class="form-group" id="shows-hdd-folder-group" style="display: none;">
-                        <label>Shows HDD Root Folder (auto-detected):</label>
-                        <input type="text" id="shows_hdd_root_folder" readonly style="background: #2a2a2a; cursor: not-allowed;">
                     </div>
                     <button type="submit">💾 Save Settings</button>
                 </form>
@@ -610,9 +659,6 @@
         let dtsMovies = [];
         let queue = [];
         let history = [];
-        let shows = [];
-        let expandedSeries = {};
-        let verificationStatus = null;
         let leftovers = [];
 
         // Tab switching
@@ -831,343 +877,6 @@
         }
 
         // ============================================================================
-        // ============================================================================
-        // TV VERIFICATION TAB FUNCTIONS
-        // ============================================================================
-
-        // Refresh TV shows list
-        async function refreshShows() {
-            const container = document.getElementById('shows-container');
-            container.innerHTML = '<div class="loading">Loading TV shows...</div>';
-            
-            try {
-                const response = await fetch('/api/shows');
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to load shows');
-                }
-                
-                shows = await response.json();
-                renderShows();
-            } catch (error) {
-                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Render TV shows list
-        function renderShows() {
-            const container = document.getElementById('shows-container');
-            
-            if (shows.length === 0) {
-                container.innerHTML = '<div class="empty-state">No TV shows found on HDD</div>';
-                return;
-            }
-            
-            container.innerHTML = shows.map(series => {
-                const isExpanded = expandedSeries[series.id] || false;
-                const arrow = isExpanded ? '▼' : '▶';
-                
-                console.log('Rendering series:', series.id, series.title);
-                
-                return `
-                    <div class="series-item">
-                        <div class="series-header" onclick="toggleSeries(${series.id})">
-                            <div>
-                                <div class="series-title">${arrow} ${series.title} (${series.year || 'N/A'})</div>
-                                <div class="series-details">
-                                    📺 ${series.seasonCount || 0} seasons
-                                </div>
-                            </div>
-                        </div>
-                        <div class="series-actions" onclick="event.stopPropagation()">
-                            <button onclick="console.log('Button clicked for series:', ${series.id}); verifySeries(${series.id})" class="secondary">
-                                ✓ Verify All Seasons
-                            </button>
-                        </div>
-                        <div id="seasons-${series.id}" class="seasons-container ${isExpanded ? 'expanded' : ''}">
-                            <div class="loading">Loading seasons...</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Toggle series expansion
-        async function toggleSeries(seriesId) {
-            expandedSeries[seriesId] = !expandedSeries[seriesId];
-            
-            const container = document.getElementById(`seasons-${seriesId}`);
-            if (!container) return;
-            
-            if (expandedSeries[seriesId]) {
-                container.classList.add('expanded');
-                container.innerHTML = '<div class="loading">Loading seasons...</div>';
-                await loadSeasons(seriesId);
-            } else {
-                container.classList.remove('expanded');
-            }
-            
-            // Update arrow only
-            const series = shows.find(s => s.id === seriesId);
-            if (series) {
-                const arrow = expandedSeries[seriesId] ? '▼' : '▶';
-                const titleElement = container.closest('.series-item').querySelector('.series-title');
-                if (titleElement) {
-                    titleElement.innerHTML = `${arrow} ${series.title} (${series.year || 'N/A'})`;
-                }
-            }
-        }
-
-        // Load seasons for a series
-        async function loadSeasons(seriesId) {
-            const container = document.getElementById(`seasons-${seriesId}`);
-            if (!container) return;
-            
-            try {
-                const response = await fetch(`/api/shows/${seriesId}/seasons`);
-                if (!response.ok) {
-                    throw new Error('Failed to load seasons');
-                }
-                
-                const seasons = await response.json();
-                renderSeasons(seriesId, seasons);
-            } catch (error) {
-                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Render seasons for a series
-        function renderSeasons(seriesId, seasons) {
-            const container = document.getElementById(`seasons-${seriesId}`);
-            if (!container) return;
-            
-            if (seasons.length === 0) {
-                container.innerHTML = '<div class="empty-state">No seasons found</div>';
-                return;
-            }
-            
-            container.innerHTML = seasons.map(season => {
-                const vData = season.verification_data || {};
-                const status = vData.status || 'unchecked';
-                const verifiedCount = (vData.verified_files || []).length;
-                const brokenCount = (vData.broken_files || []).length;
-                const totalFiles = season.fileCount;
-                const lastChecked = vData.last_checked ? new Date(vData.last_checked).toLocaleString() : 'Never';
-                
-                let statusBadge = '';
-                if (status === 'completed' && brokenCount === 0) {
-                    statusBadge = `<span class="badge success">✓ ${verifiedCount} files OK</span>`;
-                } else if (status === 'completed' && brokenCount > 0) {
-                    statusBadge = `<span class="badge warning">⚠ ${brokenCount} broken</span>`;
-                } else if (status === 'checking') {
-                    statusBadge = `<span class="badge info">⏳ Checking...</span>`;
-                } else if (status === 'paused') {
-                    statusBadge = `<span class="badge warning">⏸ Paused</span>`;
-                }
-                
-                const infoButton = brokenCount > 0 ? `
-                    <span class="info-icon" onclick="showBrokenFiles(${seriesId}, ${season.seasonNumber})" title="Show broken files">i</span>
-                ` : '';
-                
-                return `
-                    <div class="season-item">
-                        <div class="season-info">
-                            <div class="season-title">
-                                Season ${season.seasonNumber}
-                                ${statusBadge}
-                                ${infoButton}
-                            </div>
-                            <div class="season-details" style="font-size: 0.85em; color: #aaa; margin-top: 3px;">
-                                📄 ${totalFiles} files | Last checked: ${lastChecked}
-                            </div>
-                        </div>
-                        <div class="season-actions">
-                            <button onclick="console.log('Season button clicked:', ${seriesId}, ${season.seasonNumber}); verifySeason(${seriesId}, ${season.seasonNumber})" class="secondary">
-                                ✓ Verify
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Verify entire series
-        async function verifySeries(seriesId) {
-            console.log('verifySeries called with ID:', seriesId);
-            const series = shows.find(s => s.id === seriesId);
-            if (!series) {
-                console.error('Series not found:', seriesId);
-                return;
-            }
-            
-            console.log('Found series:', series.title);
-            if (!confirm(`Start verification for "${series.title}"?\n\nThis will check all episodes in all seasons.`)) {
-                console.log('User cancelled verification');
-                return;
-            }
-            
-            console.log('Starting verification for series:', seriesId);
-            try {
-                const response = await fetch(`/api/shows/${seriesId}/verify`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                console.log('Verification response:', response.status);
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to start verification');
-                }
-                
-                const result = await response.json();
-                alert(`✅ ${result.message}`);
-            } catch (error) {
-                alert(`❌ Error: ${error.message}`);
-            }
-        }
-
-        // Verify specific season
-        async function verifySeason(seriesId, seasonNumber) {
-            console.log('verifySeason called:', seriesId, seasonNumber);
-            const series = shows.find(s => s.id === seriesId);
-            if (!series) {
-                console.error('Series not found:', seriesId);
-                return;
-            }
-            
-            console.log('Found series:', series.title);
-            if (!confirm(`Start verification for "${series.title}" Season ${seasonNumber}?`)) {
-                console.log('User cancelled season verification');
-                return;
-            }
-            
-            console.log('Starting season verification:', seriesId, seasonNumber);
-            try {
-                const response = await fetch(`/api/shows/${seriesId}/seasons/${seasonNumber}/verify`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                console.log('Season verification response:', response.status);
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to start verification');
-                }
-                
-                const result = await response.json();
-                alert(`✅ ${result.message}`);
-            } catch (error) {
-                alert(`❌ Error: ${error.message}`);
-            }
-        }
-
-        // Stop verification
-        async function stopVerification() {
-            if (!confirm('Stop the current verification?')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/verification/stop', {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to stop verification');
-                }
-                
-                alert('✅ Verification stopped');
-            } catch (error) {
-                alert(`❌ Error: ${error.message}`);
-            }
-        }
-
-        // Show broken files alert
-        async function showBrokenFiles(seriesId, seasonNumber) {
-            try {
-                const response = await fetch(`/api/shows/${seriesId}/seasons`);
-                const seasons = await response.json();
-                const season = seasons.find(s => s.seasonNumber === seasonNumber);
-                
-                if (!season || !season.verification_data) return;
-                
-                const brokenFiles = season.verification_data.broken_files || [];
-                if (brokenFiles.length === 0) {
-                    alert('No broken files found');
-                    return;
-                }
-                
-                const fileList = brokenFiles.map(f => {
-                    const fileName = f.relativePath || f.path || 'Unknown file';
-                    // Extract episode number from filename if not in metadata
-                    let episodeInfo = '';
-                    if (f.episodeNumbers && f.episodeNumbers.length > 0) {
-                        episodeInfo = `Episode ${f.episodeNumbers.join(', ')}`;
-                    } else {
-                        // Try to extract from filename (e.g., S03E13)
-                        const match = fileName.match(/S(\d+)E(\d+)/i);
-                        if (match) {
-                            episodeInfo = `Episode ${parseInt(match[2])}`;
-                        } else {
-                            episodeInfo = 'Episode ?';
-                        }
-                    }
-                    return `${episodeInfo}\n  ${fileName}`;
-                }).join('\n\n');
-                
-                alert(`Broken files in Season ${seasonNumber}:\n\n${fileList}`);
-            } catch (error) {
-                alert(`❌ Error: ${error.message}`);
-            }
-        }
-
-        // Refresh verification status
-        async function refreshVerificationStatus() {
-            try {
-                const response = await fetch('/api/verification/status');
-                verificationStatus = await response.json();
-                renderVerificationProgress();
-            } catch (error) {
-                console.error('Error refreshing verification status:', error);
-            }
-        }
-
-        // Render verification progress
-        function renderVerificationProgress() {
-            const container = document.getElementById('verification-progress-container');
-            
-            if (!verificationStatus || !verificationStatus.is_active) {
-                container.innerHTML = '';
-                return;
-            }
-            
-            const progress = verificationStatus.current_index / verificationStatus.total_files * 100;
-            const remainingTime = verificationStatus.estimated_remaining;
-            const remainingMinutes = Math.ceil(remainingTime / 60);
-            
-            container.innerHTML = `
-                <div class="verification-progress">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <div style="font-weight: bold;">⏳ Verification in Progress</div>
-                        <button onclick="stopVerification()" class="danger" style="width: auto; padding: 5px 15px; margin: 0;">
-                            ⏹ Stop
-                        </button>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progress}%"></div>
-                    </div>
-                    <div style="font-size: 0.9em; color: #aaa;">
-                        <div>📄 ${verificationStatus.current_index} / ${verificationStatus.total_files} files checked</div>
-                        <div>⏱ Last file: ${verificationStatus.last_duration.toFixed(1)}s | Estimated remaining: ~${remainingMinutes} min</div>
-                        <div style="font-size: 0.85em; margin-top: 5px;">Current: ${verificationStatus.current_file || 'Starting...'}</div>
-                    </div>
-                </div>
-            `;
-        }
-
         // DTS CONVERTER TAB FUNCTIONS
         // ============================================================================
 
@@ -1488,9 +1197,6 @@
                 document.getElementById('radarr_host').value = config.radarr_host || '';
                 document.getElementById('radarr_port').value = config.radarr_port || '';
                 document.getElementById('radarr_api_key').value = config.radarr_api_key || '';
-                document.getElementById('sonarr_host').value = config.sonarr_host || '';
-                document.getElementById('sonarr_port').value = config.sonarr_port || '';
-                document.getElementById('sonarr_api_key').value = config.sonarr_api_key || '';
                 
                 // Display root folders if they exist
                 if (config.ssd_root_folder) {
@@ -1500,10 +1206,6 @@
                 if (config.hdd_root_folder) {
                     document.getElementById('hdd_root_folder').value = config.hdd_root_folder;
                     document.getElementById('hdd-folder-group').style.display = 'flex';
-                }
-                if (config.shows_hdd_root_folder) {
-                    document.getElementById('shows_hdd_root_folder').value = config.shows_hdd_root_folder;
-                    document.getElementById('shows-hdd-folder-group').style.display = 'flex';
                 }
             } catch (error) {
                 console.error('Error loading config:', error);
@@ -1520,10 +1222,7 @@
             const config = {
                 radarr_host: document.getElementById('radarr_host').value,
                 radarr_port: document.getElementById('radarr_port').value,
-                radarr_api_key: document.getElementById('radarr_api_key').value,
-                sonarr_host: document.getElementById('sonarr_host').value,
-                sonarr_port: document.getElementById('sonarr_port').value,
-                sonarr_api_key: document.getElementById('sonarr_api_key').value
+                radarr_api_key: document.getElementById('radarr_api_key').value
             };
             
             try {
@@ -1545,10 +1244,6 @@
                         document.getElementById('hdd_root_folder').value = result.hdd_root_folder;
                         document.getElementById('hdd-folder-group').style.display = 'flex';
                     }
-                    if (result.shows_hdd_root_folder) {
-                        document.getElementById('shows_hdd_root_folder').value = result.shows_hdd_root_folder;
-                        document.getElementById('shows-hdd-folder-group').style.display = 'flex';
-                    }
                     
                     messageDiv.innerHTML = '<div class="success">✅ Settings saved successfully! Root folders auto-detected.</div>';
                     await loadConfig();
@@ -1561,19 +1256,479 @@
         }
 
         // ============================================================================
+        // MEDIA INTEGRITY TAB FUNCTIONS
+        // ============================================================================
+
+        let integrityConfig = {};
+        let integrityStats = {};
+
+        // Load integrity configuration
+        async function loadIntegrityConfig() {
+            try {
+                const response = await fetch('/api/integrity/config');
+                integrityConfig = await response.json();
+                
+                // Populate form
+                const directories = integrityConfig.watch_directories || [];
+                document.getElementById('integrity-directories').value = directories.join('\n');
+                document.getElementById('integrity-test-directory').value = integrityConfig.test_directory || '';
+            } catch (error) {
+                console.error('Error loading integrity config:', error);
+            }
+        }
+
+        // Save integrity configuration
+        async function saveIntegrityConfig() {
+            const directoriesText = document.getElementById('integrity-directories').value;
+            const directories = directoriesText.split('\n').map(d => d.trim()).filter(d => d);
+            const testDirectory = document.getElementById('integrity-test-directory').value.trim() || null;
+            
+            try {
+                const response = await fetch('/api/integrity/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        watch_directories: directories,
+                        test_directory: testDirectory
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save config');
+                }
+                
+                alert('✅ Configuration saved');
+                await loadIntegrityConfig();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Refresh integrity statistics
+        async function refreshIntegrityStats() {
+            const container = document.getElementById('integrity-stats-container');
+            container.innerHTML = '<div class="loading">Loading statistics...</div>';
+            
+            try {
+                const response = await fetch('/api/integrity/stats');
+                integrityStats = await response.json();
+                renderIntegrityStats();
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render integrity statistics
+        function renderIntegrityStats() {
+            const container = document.getElementById('integrity-stats-container');
+            const stats = integrityStats;
+            
+            const total = stats.total || 0;
+            const verifiedOk = stats.verified_ok || 0;
+            const broken = stats.broken || 0;
+            const changed = stats.changed || 0;
+            const pending = stats.pending || 0;
+            
+            const okPercent = total > 0 ? (verifiedOk / total * 100).toFixed(1) : 0;
+            const brokenPercent = total > 0 ? (broken / total * 100).toFixed(1) : 0;
+            const changedPercent = total > 0 ? (changed / total * 100).toFixed(1) : 0;
+            const pendingPercent = total > 0 ? (pending / total * 100).toFixed(1) : 0;
+            
+            container.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    <div style="background: #333; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 2em; font-weight: bold;">${total}</div>
+                        <div style="color: #aaa; font-size: 0.9em;">Total Files</div>
+                    </div>
+                    <div style="background: #2d5016; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 2em; font-weight: bold; color: #66BB6A;">${verifiedOk}</div>
+                        <div style="color: #aaa; font-size: 0.9em;">✅ Verified OK (${okPercent}%)</div>
+                    </div>
+                    <div style="background: #4d1616; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 2em; font-weight: bold; color: #EF5350;">${broken}</div>
+                        <div style="color: #aaa; font-size: 0.9em;">❌ Broken (${brokenPercent}%)</div>
+                    </div>
+                    <div style="background: #4d3516; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 2em; font-weight: bold; color: #FFA726;">${changed}</div>
+                        <div style="color: #aaa; font-size: 0.9em;">⚠️ Changed (${changedPercent}%)</div>
+                    </div>
+                    <div style="background: #333; padding: 15px; border-radius: 5px; text-align: center;">
+                        <div style="font-size: 2em; font-weight: bold; color: #888;">${pending}</div>
+                        <div style="color: #aaa; font-size: 0.9em;">⏳ Pending (${pendingPercent}%)</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Start scan
+        async function startScan() {
+            try {
+                const response = await fetch('/api/integrity/scan/start', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start scan');
+                }
+                
+                document.getElementById('scan-start-btn').style.display = 'none';
+                document.getElementById('scan-stop-btn').style.display = 'block';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Stop scan
+        async function stopScan() {
+            try {
+                await fetch('/api/integrity/scan/stop', { method: 'POST' });
+                document.getElementById('scan-start-btn').style.display = 'block';
+                document.getElementById('scan-stop-btn').style.display = 'none';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Start verify
+        async function startVerify() {
+            try {
+                const response = await fetch('/api/integrity/verify/start', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start verification');
+                }
+                
+                document.getElementById('verify-start-btn').style.display = 'none';
+                document.getElementById('verify-stop-btn').style.display = 'block';
+                document.getElementById('verify-resume-btn').style.display = 'none';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Stop verify
+        async function stopVerify() {
+            try {
+                await fetch('/api/integrity/verify/stop', { method: 'POST' });
+                document.getElementById('verify-start-btn').style.display = 'none';
+                document.getElementById('verify-stop-btn').style.display = 'none';
+                document.getElementById('verify-resume-btn').style.display = 'block';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Resume verify
+        async function resumeVerify() {
+            try {
+                const response = await fetch('/api/integrity/verify/resume', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to resume verification');
+                }
+                
+                document.getElementById('verify-start-btn').style.display = 'none';
+                document.getElementById('verify-stop-btn').style.display = 'block';
+                document.getElementById('verify-resume-btn').style.display = 'none';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Start recheck
+        async function startRecheck() {
+            try {
+                const response = await fetch('/api/integrity/recheck/start', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start recheck');
+                }
+                
+                document.getElementById('recheck-start-btn').style.display = 'none';
+                document.getElementById('recheck-stop-btn').style.display = 'block';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Stop recheck
+        async function stopRecheck() {
+            try {
+                await fetch('/api/integrity/recheck/stop', { method: 'POST' });
+                document.getElementById('recheck-start-btn').style.display = 'block';
+                document.getElementById('recheck-stop-btn').style.display = 'none';
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Refresh integrity status
+        async function refreshIntegrityStatus() {
+            try {
+                // Scan status
+                const scanResponse = await fetch('/api/integrity/scan/status');
+                const scanStatus = await scanResponse.json();
+                renderScanStatus(scanStatus);
+                
+                // Verify status
+                const verifyResponse = await fetch('/api/integrity/verify/status');
+                const verifyStatus = await verifyResponse.json();
+                renderVerifyStatus(verifyStatus);
+                
+                // Recheck status
+                const recheckResponse = await fetch('/api/integrity/recheck/status');
+                const recheckStatus = await recheckResponse.json();
+                renderRecheckStatus(recheckStatus);
+            } catch (error) {
+                console.error('Error refreshing integrity status:', error);
+            }
+        }
+
+        // Render scan status
+        function renderScanStatus(status) {
+            const container = document.getElementById('scan-status-container');
+            const startBtn = document.getElementById('scan-start-btn');
+            const stopBtn = document.getElementById('scan-stop-btn');
+            
+            if (status.status === 'in_progress') {
+                container.innerHTML = `
+                    <div style="color: #42A5F5;">⏳ Scanning directories...</div>
+                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
+                        Started: ${new Date(status.started).toLocaleString()}
+                    </div>
+                `;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+            } else if (status.status === 'completed') {
+                container.innerHTML = `
+                    <div style="color: #66BB6A;">✅ Scan completed</div>
+                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
+                        Files found: ${status.total_files || 0} | Completed: ${new Date(status.completed).toLocaleString()}
+                    </div>
+                `;
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+            } else {
+                container.innerHTML = '<div class="empty-state">Not started</div>';
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+            }
+        }
+
+        // Render verify status
+        function renderVerifyStatus(status) {
+            const container = document.getElementById('verify-status-container');
+            const startBtn = document.getElementById('verify-start-btn');
+            const stopBtn = document.getElementById('verify-stop-btn');
+            const resumeBtn = document.getElementById('verify-resume-btn');
+            
+            if (status.status === 'in_progress') {
+                const progress = status.total_files > 0 ? (status.current_index / status.total_files * 100).toFixed(1) : 0;
+                container.innerHTML = `
+                    <div style="color: #42A5F5;">⏳ Verifying files...</div>
+                    <div class="progress-bar" style="margin: 10px 0;">
+                        <div class="progress-fill" style="width: ${progress}%"></div>
+                    </div>
+                    <div style="font-size: 0.9em; color: #aaa;">
+                        Progress: ${status.current_index || 0} / ${status.total_files || 0} (${progress}%)
+                    </div>
+                    <div style="font-size: 0.85em; color: #888; margin-top: 5px;">
+                        Current: ${status.current_file || 'Starting...'}
+                    </div>
+                `;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+                resumeBtn.style.display = 'none';
+            } else if (status.status === 'paused') {
+                container.innerHTML = `
+                    <div style="color: #FFA726;">⏸ Verification paused</div>
+                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
+                        Progress: ${status.current_index || 0} / ${status.total_files || 0}
+                    </div>
+                `;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'none';
+                resumeBtn.style.display = 'block';
+            } else if (status.status === 'completed') {
+                container.innerHTML = `
+                    <div style="color: #66BB6A;">✅ Verification completed</div>
+                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
+                        Completed: ${new Date(status.completed).toLocaleString()}
+                    </div>
+                `;
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+                resumeBtn.style.display = 'none';
+            } else {
+                container.innerHTML = '<div class="empty-state">Not started</div>';
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+                resumeBtn.style.display = 'none';
+            }
+        }
+
+        // Render recheck status
+        function renderRecheckStatus(status) {
+            const container = document.getElementById('recheck-status-container');
+            const startBtn = document.getElementById('recheck-start-btn');
+            const stopBtn = document.getElementById('recheck-stop-btn');
+            
+            if (status.status === 'in_progress') {
+                const progress = status.total_files > 0 ? (status.current_index / status.total_files * 100).toFixed(1) : 0;
+                container.innerHTML = `
+                    <div style="color: #42A5F5;">⏳ Rechecking checksums...</div>
+                    <div class="progress-bar" style="margin: 10px 0;">
+                        <div class="progress-fill" style="width: ${progress}%"></div>
+                    </div>
+                    <div style="font-size: 0.9em; color: #aaa;">
+                        Progress: ${status.current_index || 0} / ${status.total_files || 0} (${progress}%)
+                    </div>
+                `;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+            } else if (status.status === 'completed') {
+                container.innerHTML = `
+                    <div style="color: #66BB6A;">✅ Recheck completed</div>
+                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
+                        Completed: ${new Date(status.completed).toLocaleString()}
+                    </div>
+                `;
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+            } else {
+                container.innerHTML = '<div class="empty-state">Not started</div>';
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+            }
+        }
+
+        // Refresh integrity issues
+        async function refreshIntegrityIssues() {
+            const container = document.getElementById('integrity-issues-container');
+            container.innerHTML = '<div class="loading">Loading issues...</div>';
+            
+            try {
+                const [brokenResponse, changedResponse] = await Promise.all([
+                    fetch('/api/integrity/files/broken'),
+                    fetch('/api/integrity/files/changed')
+                ]);
+                
+                const brokenFiles = await brokenResponse.json();
+                const changedFiles = await changedResponse.json();
+                
+                renderIntegrityIssues(brokenFiles, changedFiles);
+            } catch (error) {
+                container.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Render integrity issues
+        function renderIntegrityIssues(brokenFiles, changedFiles) {
+            const container = document.getElementById('integrity-issues-container');
+            
+            const brokenCount = Object.keys(brokenFiles).length;
+            const changedCount = Object.keys(changedFiles).length;
+            
+            if (brokenCount === 0 && changedCount === 0) {
+                container.innerHTML = '<div class="empty-state">No issues found</div>';
+                return;
+            }
+            
+            let html = '';
+            
+            if (brokenCount > 0) {
+                html += `
+                    <div style="margin-bottom: 20px;">
+                        <div style="font-weight: bold; margin-bottom: 10px; color: #EF5350;">
+                            ❌ Broken Files (${brokenCount})
+                        </div>
+                        ${Object.entries(brokenFiles).slice(0, 10).map(([path, data]) => `
+                            <div class="movie-item" style="padding: 8px 12px;">
+                                <div style="font-size: 0.9em; font-family: monospace; color: #e0e0e0;">${path}</div>
+                                <div style="font-size: 0.8em; color: #EF5350; margin-top: 3px;">${data.error || 'Unknown error'}</div>
+                            </div>
+                        `).join('')}
+                        ${brokenCount > 10 ? `<div style="text-align: center; color: #888; margin-top: 10px;">... and ${brokenCount - 10} more</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            if (changedCount > 0) {
+                html += `
+                    <div>
+                        <div style="font-weight: bold; margin-bottom: 10px; color: #FFA726;">
+                            ⚠️ Changed Checksums (${changedCount})
+                        </div>
+                        ${Object.entries(changedFiles).slice(0, 10).map(([path, data]) => `
+                            <div class="movie-item" style="padding: 8px 12px;">
+                                <div style="font-size: 0.9em; font-family: monospace; color: #e0e0e0;">${path}</div>
+                                <div style="font-size: 0.8em; color: #FFA726; margin-top: 3px;">Checksum mismatch - possible corruption</div>
+                            </div>
+                        `).join('')}
+                        ${changedCount > 10 ? `<div style="text-align: center; color: #888; margin-top: 10px;">... and ${changedCount - 10} more</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // Reset integrity data
+        async function resetIntegrityData() {
+            if (!confirm('⚠️ WARNING: This will delete ALL integrity data including checksums and verification results.\n\nThis action cannot be undone!\n\nAre you sure?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/integrity/reset', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to reset data');
+                }
+                
+                alert('✅ All integrity data has been reset');
+                await refreshIntegrityStats();
+                await refreshIntegrityIssues();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Clear integrity reports
+        async function clearIntegrityReports() {
+            if (!confirm('Clear all broken/changed file reports?\n\nThis will reset their status to pending for re-verification.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/integrity/clear-reports', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to clear reports');
+                }
+                
+                alert('✅ Reports cleared');
+                await refreshIntegrityStats();
+                await refreshIntegrityIssues();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // ============================================================================
         // AUTO-REFRESH AND INITIALIZATION
         // ============================================================================
 
-        // Auto-refresh queue, history, and verification status every 2 seconds
+        // Auto-refresh queue, history, and integrity status every 2 seconds
         setInterval(() => {
             refreshQueue();
             refreshHistory();
-            refreshVerificationStatus();
+            refreshIntegrityStatus();
         }, 2000);
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
             await loadConfig();
+            await loadIntegrityConfig();
             await refreshQueue();
             await refreshHistory();
         });
