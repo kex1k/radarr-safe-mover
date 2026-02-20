@@ -40,7 +40,7 @@ class IntegrityStorage:
         """Структура данных по умолчанию"""
         return {
             'config': {
-                'watch_directories': ['/media/shows_hdd', '/media/movies_hdd'],
+                'watch_directories': ['/shows_hdd', '/movies_hdd'],
                 'checksum_algorithm': 'xxhash3_128',
                 'test_directory': None
             },
@@ -266,8 +266,44 @@ class IntegrityVerifier:
         self.stop_flag = threading.Event()
         self.verify_thread = None
     
-    def _ffprobe_check(self, filepath):
-        """Быстрая проверка через ffprobe"""
+    def _ffmpeg_check(self, filepath):
+        """Полная проверка через ffmpeg с декодированием видео"""
+        try:
+            # Используем ionice + nice для минимального приоритета
+            cmd = [
+                'ionice', '-c3',  # idle class
+                'nice', '-n19',   # lowest CPU priority
+                'ffmpeg',
+                '-v', 'error',
+                '-xerror',  # exit on error
+                '-err_detect', 'explode',  # aggressive error detection
+                '-skip_frame', 'nokey',  # check only keyframes (faster)
+                '-i', filepath,
+                '-map', '0:v',  # only video stream
+                '-f', 'null',   # decode but don't write
+                '-'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=300  # 5 minutes timeout for large files
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr.decode('utf-8', errors='ignore')
+                return False, error_msg
+            
+            return True, None
+                
+        except subprocess.TimeoutExpired:
+            return False, "ffmpeg timeout (>5 min)"
+        except Exception as e:
+            return False, str(e)
+    
+    def _get_duration(self, filepath):
+        """Получить duration через ffprobe (быстро)"""
         try:
             cmd = [
                 'ffprobe',
@@ -281,24 +317,18 @@ class IntegrityVerifier:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=30
+                timeout=10
             )
             
-            if result.returncode != 0:
-                return False, result.stderr.decode('utf-8', errors='ignore')
-            
-            # Попробовать распарсить JSON для получения duration
-            try:
-                data = json.loads(result.stdout)
-                duration = float(data.get('format', {}).get('duration', 0))
-                return True, duration
-            except:
-                return True, 0
-                
-        except subprocess.TimeoutExpired:
-            return False, "ffprobe timeout"
-        except Exception as e:
-            return False, str(e)
+            if result.returncode == 0:
+                try:
+                    data = json.loads(result.stdout)
+                    return float(data.get('format', {}).get('duration', 0))
+                except:
+                    pass
+            return 0
+        except:
+            return 0
     
     def _calculate_xxhash(self, filepath):
         """Вычислить xxHash с ionice/nice"""
@@ -327,19 +357,20 @@ class IntegrityVerifier:
         """Проверить один файл"""
         start_time = time.time()
         
-        # 1. ffprobe check
-        is_valid, result = self._ffprobe_check(file_path)
+        # 1. ffmpeg check (полная проверка с декодированием)
+        is_valid, error = self._ffmpeg_check(file_path)
         
         if not is_valid:
             return {
                 'verify_status': 'broken',
-                'error': f"ffprobe: {result}",
+                'error': f"ffmpeg: {error}",
                 'verified_at': datetime.now().isoformat()
             }
         
-        duration = result if isinstance(result, (int, float)) else 0
+        # 2. Get duration (быстро через ffprobe)
+        duration = self._get_duration(file_path)
         
-        # 2. Calculate checksum
+        # 3. Calculate checksum (с ionice/nice через subprocess)
         checksum, algorithm = self._calculate_xxhash(file_path)
         
         if checksum is None:
