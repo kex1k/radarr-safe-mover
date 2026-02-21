@@ -177,26 +177,33 @@ def get_movies():
 
 @app.route('/api/movies/dts', methods=['GET'])
 def get_dts_movies():
-    """Get movies with DTS 5.1 audio from Radarr"""
+    """Get movies with DTS 5.1 or FLAC 7.1 audio from Radarr"""
     try:
         radarr = get_radarr_client()
         all_movies = radarr.get_all_movies()
         
-        # Filter movies with DTS and 5.1 in filename (NOT 7.1)
-        # Pattern: DTS (case insensitive) AND 5.1
+        # Pattern for DTS 5.1 (original files to convert)
         dts_pattern = re.compile(r'dts.*5\.1|5\.1.*dts', re.IGNORECASE)
-        dts_movies = []
+        # Pattern for FLAC 7.1 (already converted, may need retry)
+        flac_pattern = re.compile(r'flac.*7\.1|7\.1.*flac', re.IGNORECASE)
+        
+        result_movies = []
         
         for movie in all_movies:
             movie_file = movie.get('movieFile', {})
             if movie_file:
                 relative_path = movie_file.get('relativePath', '')
+                
                 if dts_pattern.search(relative_path):
-                    dts_movies.append(movie)
+                    movie['_audio_type'] = 'dts'  # Mark as DTS for frontend
+                    result_movies.append(movie)
+                elif flac_pattern.search(relative_path):
+                    movie['_audio_type'] = 'flac'  # Mark as FLAC (retry candidate)
+                    result_movies.append(movie)
         
-        return jsonify(dts_movies)
+        return jsonify(result_movies)
     except Exception as e:
-        logger.error(f"Error getting DTS movies: {str(e)}", exc_info=True)
+        logger.error(f"Error getting DTS/FLAC movies: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 400
 
 

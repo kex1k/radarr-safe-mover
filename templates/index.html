@@ -910,7 +910,7 @@
             const container = document.getElementById('dts-movies-container');
             
             if (dtsMovies.length === 0) {
-                container.innerHTML = '<div class="empty-state">No movies with DTS audio found</div>';
+                container.innerHTML = '<div class="empty-state">No movies with DTS/FLAC audio found</div>';
                 return;
             }
             
@@ -919,13 +919,45 @@
                 const size = movieFile.size ? (movieFile.size / 1024 / 1024 / 1024).toFixed(2) + ' GB' : 'Unknown';
                 const quality = movieFile.quality?.quality?.name || 'Unknown';
                 const relativePath = movieFile.relativePath || '';
+                const audioType = movie._audio_type || 'dts';
                 
                 const inQueue = queue.some(item => item.movie.id === movie.id);
+                
+                // Different button based on audio type
+                let actionButton;
+                if (audioType === 'flac') {
+                    // FLAC file - show Try Again button
+                    actionButton = `
+                        <button
+                            onclick="retryConversion('${movieFile.path?.replace(/'/g, "\\'")}', '${movie.title.replace(/'/g, "\\'")}')"
+                            ${inQueue ? 'disabled' : ''}
+                            class="secondary"
+                        >
+                            ${inQueue ? '✓ In Queue' : '🔄 Try Again'}
+                        </button>
+                    `;
+                } else {
+                    // DTS file - show Convert button
+                    actionButton = `
+                        <button
+                            onclick="addToQueue(${movie.id}, 'convert')"
+                            ${inQueue ? 'disabled' : ''}
+                            class="warning"
+                        >
+                            ${inQueue ? '✓ In Queue' : '🎵 Convert to FLAC'}
+                        </button>
+                    `;
+                }
+                
+                // Badge for audio type
+                const audioBadge = audioType === 'flac'
+                    ? '<span class="badge warning">FLAC (retry)</span>'
+                    : '<span class="badge info">DTS</span>';
                 
                 return `
                     <div class="movie-item">
                         <div class="movie-info">
-                            <div class="movie-title">${movie.title} (${movie.year})</div>
+                            <div class="movie-title">${movie.title} (${movie.year}) ${audioBadge}</div>
                             <div class="movie-details">
                                 📦 ${size} | 🎥 ${quality}
                             </div>
@@ -934,13 +966,7 @@
                             </div>
                         </div>
                         <div class="movie-actions">
-                            <button 
-                                onclick="addToQueue(${movie.id}, 'convert')" 
-                                ${inQueue ? 'disabled' : ''}
-                                class="warning"
-                            >
-                                ${inQueue ? '✓ In Queue' : '🎵 Convert to FLAC'}
-                            </button>
+                            ${actionButton}
                         </div>
                     </div>
                 `;
