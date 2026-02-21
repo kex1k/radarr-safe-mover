@@ -699,6 +699,89 @@ def clear_integrity_reports():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/integrity/reset-broken', methods=['POST'])
+def reset_broken_files():
+    """Reset broken files to pending status"""
+    try:
+        count = integrity_storage.reset_broken_files()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Reset {count} broken file(s) to pending',
+            'count': count
+        })
+    except Exception as e:
+        logger.error(f"Error resetting broken files: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrity/export-issues', methods=['GET'])
+def export_integrity_issues():
+    """Export all broken and changed files to text format"""
+    try:
+        all_files = integrity_storage.get_all_files()
+        
+        # Collect broken files
+        broken_files = {
+            path: data for path, data in all_files.items()
+            if data.get('verify_status') in ['broken', 'error']
+        }
+        
+        # Collect changed files
+        changed_files = {
+            path: data for path, data in all_files.items()
+            if data.get('checksum_status') == 'changed'
+        }
+        
+        # Format as text
+        lines = []
+        lines.append("=" * 80)
+        lines.append("MEDIA INTEGRITY ISSUES REPORT")
+        lines.append("=" * 80)
+        lines.append("")
+        
+        if broken_files:
+            lines.append(f"BROKEN FILES ({len(broken_files)}):")
+            lines.append("-" * 80)
+            for path, data in broken_files.items():
+                lines.append(f"\nFile: {path}")
+                lines.append(f"Error: {data.get('error', 'Unknown error')}")
+                if data.get('warning'):
+                    lines.append(f"Warning: {data.get('warning')}")
+                lines.append("")
+        
+        if changed_files:
+            lines.append("")
+            lines.append(f"CHANGED CHECKSUMS ({len(changed_files)}):")
+            lines.append("-" * 80)
+            for path, data in changed_files.items():
+                lines.append(f"\nFile: {path}")
+                lines.append(f"Error: {data.get('error', 'Checksum mismatch')}")
+                lines.append("")
+        
+        if not broken_files and not changed_files:
+            lines.append("No issues found!")
+        
+        lines.append("")
+        lines.append("=" * 80)
+        
+        text_content = "\n".join(lines)
+        
+        # Return as plain text with proper headers for download
+        from flask import Response
+        return Response(
+            text_content,
+            mimetype='text/plain',
+            headers={
+                'Content-Disposition': 'attachment; filename=integrity_issues.txt'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exporting issues: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # Application Entry Point
 # ============================================================================

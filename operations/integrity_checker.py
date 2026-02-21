@@ -104,7 +104,7 @@ class IntegrityStorage:
         self.save()
     
     def clear_reports(self):
-        """Очистить отчёты (broken/changed статусы)"""
+        """Очистить отчёты (broken/changed статусы и warnings)"""
         logger.info("Clearing integrity reports")
         for path, file_data in self.data['files'].items():
             if file_data.get('verify_status') in ['broken', 'error']:
@@ -112,7 +112,24 @@ class IntegrityStorage:
                 file_data['error'] = None
             if file_data.get('checksum_status') == 'changed':
                 file_data['checksum_status'] = 'verified'
+            # Очистить warnings
+            if 'warning' in file_data:
+                file_data['warning'] = None
         self.save()
+    
+    def reset_broken_files(self):
+        """Сбросить только broken/error файлы в pending для перепроверки"""
+        logger.info("Resetting broken files to pending")
+        count = 0
+        for path, file_data in self.data['files'].items():
+            if file_data.get('verify_status') in ['broken', 'error']:
+                file_data['verify_status'] = 'pending'
+                file_data['error'] = None
+                if 'warning' in file_data:
+                    file_data['warning'] = None
+                count += 1
+        self.save()
+        return count
 
 
 class IntegrityScanner:
@@ -127,6 +144,10 @@ class IntegrityScanner:
     
     def _is_video(self, entry):
         """Проверить что файл - видео"""
+        filename = Path(entry.path).name
+        # Исключаем macOS metadata файлы
+        if filename.startswith('._'):
+            return False
         return entry.is_file() and Path(entry.path).suffix.lower() in self.VIDEO_EXTENSIONS
     
     def _make_fingerprint(self, entry):
@@ -273,6 +294,10 @@ class IntegrityVerifier:
             'non monotonically increasing dts',  # проблема timestamps, не повреждение
             'Duplicate POC in a sequence',       # нестандартный порядок кадров HEVC
             'Application provided invalid',      # связано с DTS
+            'invalid bitstream id',              # проблема аудио кодека
+            'unable to determine channel mode',  # проблема аудио кодека
+            'coupling not allowed',              # проблема аудио кодека
+            'Codec AVOption skip_frame',         # наша опция ffmpeg
         ]
         
         # Паттерны реальных повреждений (критические)
@@ -314,6 +339,16 @@ class IntegrityVerifier:
         
         return False
     
+    def _calculate_timeout(self, filepath):
+        """Вычислить timeout на основе размера файла"""
+        try:
+            file_size = os.path.getsize(filepath)
+            # 1 минута на каждый GB, минимум 5 минут, максимум 60 минут
+            timeout = max(300, min(3600, int(file_size / (1024**3) * 60)))
+            return timeout
+        except:
+            return 300  # default 5 minutes
+    
     def _ffmpeg_check(self, filepath):
         """Полная проверка через ffmpeg с декодированием видео"""
         try:
@@ -332,11 +367,13 @@ class IntegrityVerifier:
                 '-'
             ]
             
+            timeout = self._calculate_timeout(filepath)
+            
             result = subprocess.run(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=300  # 5 minutes timeout for large files
+                timeout=timeout
             )
             
             if result.returncode != 0:
@@ -344,18 +381,19 @@ class IntegrityVerifier:
                 
                 # Фильтруем ошибки - проверяем только критические
                 if self._is_critical_error(error_msg):
-                    return False, error_msg
+                    return False, error_msg, None
                 else:
-                    # Некритическая ошибка (DTS/POC) - считаем файл OK
-                    logger.debug(f"Non-critical ffmpeg errors ignored for {filepath}: {error_msg[:200]}")
-                    return True, None
+                    # Некритическая ошибка (DTS/POC/audio) - считаем файл OK, но сохраняем warning
+                    logger.debug(f"Non-critical ffmpeg errors for {filepath}: {error_msg[:200]}")
+                    return True, None, error_msg
             
-            return True, None
+            return True, None, None
                 
         except subprocess.TimeoutExpired:
-            return False, "ffmpeg timeout (>5 min)"
+            timeout = self._calculate_timeout(filepath)
+            return False, f"ffmpeg timeout (>{timeout}s)", None
         except Exception as e:
-            return False, str(e)
+            return False, str(e), None
     
     def _get_duration(self, filepath):
         """Получить duration через ffprobe (быстро)"""
@@ -413,7 +451,7 @@ class IntegrityVerifier:
         start_time = time.time()
         
         # 1. ffmpeg check (полная проверка с декодированием)
-        is_valid, error = self._ffmpeg_check(file_path)
+        is_valid, error, warning = self._ffmpeg_check(file_path)
         
         if not is_valid:
             return {
@@ -434,7 +472,7 @@ class IntegrityVerifier:
         
         verify_duration = time.time() - start_time
         
-        return {
+        result = {
             'verify_status': 'ok',
             'checksum': checksum,
             'checksum_status': 'verified',
@@ -444,6 +482,12 @@ class IntegrityVerifier:
             },
             'verify_duration': verify_duration
         }
+        
+        # Добавить warning если есть некритические ошибки
+        if warning:
+            result['warning'] = warning
+        
+        return result
     
     def start_verify(self, resume=False):
         """Запустить проверку в фоновом потоке"""

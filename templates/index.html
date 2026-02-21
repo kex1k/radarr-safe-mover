@@ -510,6 +510,7 @@
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
                     <button onclick="resetIntegrityData()" class="danger" style="flex: 1;">🗑️ Reset All Data</button>
                     <button onclick="clearIntegrityReports()" class="warning" style="flex: 1;">🧹 Clear Reports</button>
+                    <button onclick="resetBrokenFiles()" class="warning" style="flex: 1;">🔄 Reset Broken</button>
                 </div>
             </div>
 
@@ -1641,13 +1642,27 @@
                         <div style="font-weight: bold; margin-bottom: 10px; color: #EF5350;">
                             ❌ Broken Files (${brokenCount})
                         </div>
-                        ${Object.entries(brokenFiles).slice(0, 10).map(([path, data]) => `
-                            <div class="movie-item" style="padding: 8px 12px;">
-                                <div style="font-size: 0.9em; font-family: monospace; color: #e0e0e0;">${path}</div>
-                                <div style="font-size: 0.8em; color: #EF5350; margin-top: 3px;">${data.error || 'Unknown error'}</div>
+                        ${Object.entries(brokenFiles).slice(0, 10).map(([path, data]) => {
+                            const warningHtml = data.warning ? `
+                                <div style="font-size: 0.75em; color: #FFA726; margin-top: 3px; padding: 3px 6px; background: rgba(255, 167, 38, 0.1); border-radius: 3px;">
+                                    ⚠️ Non-critical: ${data.warning.substring(0, 150)}${data.warning.length > 150 ? '...' : ''}
+                                </div>
+                            ` : '';
+                            return `
+                                <div class="movie-item" style="padding: 8px 12px;">
+                                    <div style="font-size: 0.9em; font-family: monospace; color: #e0e0e0;">${path}</div>
+                                    <div style="font-size: 0.8em; color: #EF5350; margin-top: 3px;">${data.error || 'Unknown error'}</div>
+                                    ${warningHtml}
+                                </div>
+                            `;
+                        }).join('')}
+                        ${brokenCount > 10 ? `
+                            <div style="text-align: center; margin-top: 10px;">
+                                <a href="/api/integrity/export-issues" target="_blank" style="color: #4CAF50; text-decoration: underline; cursor: pointer;">
+                                    📄 ... and ${brokenCount - 10} more (click to export all)
+                                </a>
                             </div>
-                        `).join('')}
-                        ${brokenCount > 10 ? `<div style="text-align: center; color: #888; margin-top: 10px;">... and ${brokenCount - 10} more</div>` : ''}
+                        ` : ''}
                     </div>
                 `;
             }
@@ -1664,7 +1679,13 @@
                                 <div style="font-size: 0.8em; color: #FFA726; margin-top: 3px;">Checksum mismatch - possible corruption</div>
                             </div>
                         `).join('')}
-                        ${changedCount > 10 ? `<div style="text-align: center; color: #888; margin-top: 10px;">... and ${changedCount - 10} more</div>` : ''}
+                        ${changedCount > 10 ? `
+                            <div style="text-align: center; margin-top: 10px;">
+                                <a href="/api/integrity/export-issues" target="_blank" style="color: #4CAF50; text-decoration: underline; cursor: pointer;">
+                                    📄 ... and ${changedCount - 10} more (click to export all)
+                                </a>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }
@@ -1707,6 +1728,28 @@
                 }
                 
                 alert('✅ Reports cleared');
+                await refreshIntegrityStats();
+                await refreshIntegrityIssues();
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Reset broken files to pending
+        async function resetBrokenFiles() {
+            if (!confirm('Reset broken files to pending?\n\nThis will allow you to re-verify them by clicking Start Verify.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/integrity/reset-broken', { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to reset broken files');
+                }
+                
+                const result = await response.json();
+                alert(`✅ ${result.message}`);
                 await refreshIntegrityStats();
                 await refreshIntegrityIssues();
             } catch (error) {
