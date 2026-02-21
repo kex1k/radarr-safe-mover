@@ -566,7 +566,12 @@
             <div class="section">
                 <div class="section-title">
                     <span>⚠️ Issues</span>
-                    <button onclick="refreshIntegrityIssues()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="refreshIntegrityIssues()" style="width: auto; margin: 0; padding: 8px 15px;">🔄 Refresh</button>
+                        <a href="/api/integrity/export-issues" target="_blank" style="text-decoration: none;">
+                            <button style="width: auto; margin: 0; padding: 8px 15px;" class="secondary">📄 Export Report</button>
+                        </a>
+                    </div>
                 </div>
                 <div id="integrity-issues-container">
                     <div class="empty-state">No issues found</div>
@@ -1500,10 +1505,11 @@
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'block';
             } else if (status.status === 'completed') {
+                const removedText = status.removed_missing > 0 ? ` | Removed missing: ${status.removed_missing}` : '';
                 container.innerHTML = `
                     <div style="color: #66BB6A;">✅ Scan completed</div>
                     <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">
-                        Files found: ${status.total_files || 0} | Completed: ${new Date(status.completed).toLocaleString()}
+                        Files found: ${status.total_files || 0}${removedText} | Completed: ${new Date(status.completed).toLocaleString()}
                     </div>
                 `;
                 startBtn.style.display = 'block';

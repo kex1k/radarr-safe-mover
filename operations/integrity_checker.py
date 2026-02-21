@@ -231,6 +231,19 @@ class IntegrityScanner:
                 # Сканировать
                 files_found = self.scan(directories)
                 
+                # Получить список всех файлов в базе
+                all_stored_files = set(self.storage.get_all_files().keys())
+                files_found_paths = set(files_found.keys())
+                
+                # Найти файлы которые есть в базе но нет на диске
+                missing_files = all_stored_files - files_found_paths
+                
+                # Удалить записи о несуществующих файлах
+                if missing_files:
+                    logger.info(f"Removing {len(missing_files)} missing files from database")
+                    for path in missing_files:
+                        del self.storage.data['files'][path]
+                
                 # Обновить базу файлов
                 for path, file_data in files_found.items():
                     existing = self.storage.get_file(path)
@@ -259,7 +272,8 @@ class IntegrityScanner:
                 self.storage.update_progress('scan', {
                     'status': 'completed',
                     'completed': datetime.now().isoformat(),
-                    'total_files': len(files_found)
+                    'total_files': len(files_found),
+                    'removed_missing': len(missing_files) if missing_files else 0
                 })
                 
             except Exception as e:
