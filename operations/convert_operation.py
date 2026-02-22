@@ -224,7 +224,11 @@ class ConvertOperationHandler(OperationHandler):
                 codec_name = stream.get('codec_name', '')
                 if codec_name != 'flac':  # Skip existing FLAC tracks
                     stream_index = stream.get('index', 0)
-                    cmd.extend(['-map', f'1:{stream_index}', f'-c:a:{audio_track_count + 1}', 'copy'])
+                    cmd.extend([
+                        '-map', f'1:{stream_index}',
+                        f'-c:a:{audio_track_count + 1}', 'copy',
+                        f'-disposition:a:{audio_track_count + 1}', '0'  # Remove default disposition
+                    ])
                     audio_track_count += 1
         
         # Map subtitles
