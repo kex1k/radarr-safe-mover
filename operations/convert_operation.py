@@ -142,7 +142,7 @@ class ConvertOperationHandler(OperationHandler):
             'ffmpeg', '-y',
             '-i', input_file,
             '-vn',
-            '-map', f'0:a:{audio_track_index}',  # Use specific audio track
+            '-map', f'0:{audio_track_index}',  # Use absolute stream index
             '-af', 'channelmap=map=FL-FL|FR-FR|FC-FC|LFE-LFE|SL-SL|SR-SR|BL=SL|BR=SR:layout=7.1',
             '-c:a', 'flac',
             '-compression_level', '8',
