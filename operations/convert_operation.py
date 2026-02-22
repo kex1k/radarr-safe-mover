@@ -141,9 +141,8 @@ class ConvertOperationHandler(OperationHandler):
         cmd.extend([
             'ffmpeg', '-y',
             '-i', input_file,
-            '-vn',
-            '-map', f'0:{audio_track_index}',  # Use absolute stream index
-            '-af', 'channelsplit=channel_layout=5.1(side)[FL][FR][FC][LFE][SL][SR];[FL][FR][FC][LFE][SL][SR][SL][SR]amerge=inputs=8,aformat=channel_layouts=7.1',
+            '-filter_complex', f'[0:{audio_track_index}]channelsplit=channel_layout=5.1(side)[FL][FR][FC][LFE][SL][SR];[FL][FR][FC][LFE][SL][SR][SL][SR]amerge=inputs=8[aout]',
+            '-map', '[aout]',
             '-c:a', 'flac',
             '-compression_level', '8',
             '-loglevel', 'warning',
