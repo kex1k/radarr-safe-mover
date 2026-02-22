@@ -118,15 +118,25 @@ class IntegrityStorage:
         self.save()
     
     def reset_broken_files(self):
-        """Сбросить только broken/error файлы в pending для перепроверки"""
-        logger.info("Resetting broken files to pending")
+        """Сбросить broken/error и changed файлы в pending для перепроверки"""
+        logger.info("Resetting broken and changed files to pending")
         count = 0
         for path, file_data in self.data['files'].items():
+            # Сбросить broken/error файлы
             if file_data.get('verify_status') in ['broken', 'error']:
                 file_data['verify_status'] = 'pending'
+                file_data['checksum_status'] = 'pending'
+                file_data['checksum'] = None
                 file_data['error'] = None
                 if 'warning' in file_data:
                     file_data['warning'] = None
+                count += 1
+            # Сбросить changed файлы
+            elif file_data.get('checksum_status') == 'changed':
+                file_data['verify_status'] = 'pending'
+                file_data['checksum_status'] = 'pending'
+                file_data['checksum'] = None
+                file_data['error'] = None
                 count += 1
         self.save()
         return count

@@ -159,9 +159,13 @@ class ConvertOperationHandler(OperationHandler):
             bufsize=1
         )
         
+        # Collect all stderr lines for error reporting
+        stderr_lines = []
+        
         # Monitor progress
         for line in process.stderr:
             line = line.strip()
+            stderr_lines.append(line)  # Save all lines
             if line and progress_callback:
                 # Extract time from ffmpeg output
                 time_match = re.search(r'time=(\d+:\d+:\d+\.\d+)', line)
@@ -175,9 +179,9 @@ class ConvertOperationHandler(OperationHandler):
         process.wait()
         
         if process.returncode != 0:
-            # stderr already consumed in the loop, get remaining output
-            remaining_stderr = process.stderr.read() if process.stderr else ''
-            raise Exception(f"Conversion failed: {remaining_stderr}")
+            # Use collected stderr lines for error message
+            error_output = '\n'.join(stderr_lines) if stderr_lines else 'Unknown error'
+            raise Exception(f"Conversion failed (exit code {process.returncode}): {error_output}")
         
         if not os.path.exists(output_file):
             raise Exception("Output file was not created")
