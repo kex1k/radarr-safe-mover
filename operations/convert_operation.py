@@ -71,6 +71,7 @@ class ConvertOperationHandler(OperationHandler):
         os.makedirs(TEMP_DIR, exist_ok=True)
         
         temp_audio = os.path.join(TEMP_DIR, f"convert_audio_{os.getpid()}.flac")
+        temp_output = os.path.join(TEMP_DIR, f"convert_output_{os.getpid()}.mkv")
         
         try:
             logger.info(f"Starting conversion of track {dts_track_index} to FLAC 7.1...")
@@ -80,8 +81,6 @@ class ConvertOperationHandler(OperationHandler):
             # Step 3: Merge audio track
             update_status('verifying')
             update_progress('Merging audio track into MKV...')
-            
-            temp_output = os.path.join(TEMP_DIR, f"convert_output_{os.getpid()}.mkv")
             
             logger.info("Merging audio track...")
             self._merge_audio_track(src_path, temp_audio, temp_output, is_on_hdd)
