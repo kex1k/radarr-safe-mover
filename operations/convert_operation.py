@@ -224,7 +224,7 @@ class ConvertOperationHandler(OperationHandler):
                 codec_name = stream.get('codec_name', '')
                 if codec_name != 'flac':  # Skip existing FLAC tracks
                     stream_index = stream.get('index', 0)
-                    cmd.extend(['-map', f'1:{stream_index}', '-c:a:{audio_track_count + 1}', 'copy'])
+                    cmd.extend(['-map', f'1:{stream_index}', f'-c:a:{audio_track_count + 1}', 'copy'])
                     audio_track_count += 1
         
         # Map subtitles
@@ -272,11 +272,18 @@ class ConvertOperationHandler(OperationHandler):
         - DTS-5.1 -> FLAC.7.1
         - 5.1.DTS -> FLAC.7.1
         
+        Also handles retry case where FLAC.7.1 already exists in filename
+        
         Returns:
             str: New file path after rename
         """
         directory = os.path.dirname(filepath)
         filename = os.path.basename(filepath)
+        
+        # Check if already has FLAC.7.1 in filename (retry case)
+        if re.search(r'FLAC\.7\.1', filename, re.IGNORECASE):
+            logger.info("File already has FLAC.7.1 in name, skipping rename")
+            return filepath
         
         # Define patterns to replace (case insensitive)
         # Order matters - more specific patterns first
