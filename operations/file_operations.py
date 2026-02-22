@@ -2,7 +2,7 @@
 import os
 import subprocess
 import logging
-import hashlib
+import xxhash
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -10,21 +10,24 @@ logger = logging.getLogger(__name__)
 
 def calculate_checksum(filepath, progress_callback=None):
     """
-    Calculate SHA256 checksum with optional progress reporting
+    Calculate xxHash3_128 checksum with optional progress reporting
+    
+    Uses xxHash3_128 for fast, non-cryptographic checksumming.
+    ~50-100x faster than SHA256 for large files.
     
     Args:
         filepath: Path to file
         progress_callback: Optional callback function(progress_percent)
     
     Returns:
-        str: SHA256 checksum hex string
+        str: xxHash3_128 checksum hex string
     """
-    hash_func = hashlib.sha256()
+    hash_func = xxhash.xxh3_128()
     file_size = os.path.getsize(filepath)
     bytes_read = 0
     chunk_size = 8192 * 1024  # 8MB chunks
     
-    logger.info(f"Calculating SHA256 checksum for {filepath} ({file_size / 1024 / 1024 / 1024:.2f} GB)")
+    logger.info(f"Calculating xxHash3_128 checksum for {filepath} ({file_size / 1024 / 1024 / 1024:.2f} GB)")
     
     with open(filepath, 'rb') as f:
         while True:
