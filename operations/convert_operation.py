@@ -141,10 +141,13 @@ class ConvertOperationHandler(OperationHandler):
         cmd.extend([
             'ffmpeg', '-y',
             '-i', input_file,
-            '-filter_complex', f'[0:{audio_track_index}]channelsplit=channel_layout=5.1(side)[FL][FR][FC][LFE][SL][SR];[FL][FR][FC][LFE][SL][SR][SL][SR]amerge=inputs=8,pan=7.1|c0=c0|c1=c1|c2=c2|c3=c3|c4=c4|c5=c5|c6=c4|c7=c5[aout]',
-            '-map', '[aout]',
+            '-vn',
+            '-map', f'0:{audio_track_index}',  # Select specific DTS track
             '-c:a', 'flac',
             '-compression_level', '8',
+            '-channel_layout', '7.1',
+            '-ac', '8',
+            '-af', 'pan=7.1|FL=FL|FR=FR|FC=FC|LFE=LFE|BL=SL|BR=SR|SL=SL|SR=SR',
             '-loglevel', 'warning',
             '-stats',
             output_file
@@ -201,13 +204,13 @@ class ConvertOperationHandler(OperationHandler):
         if use_nice:
             cmd.extend(['ionice', '-c3', 'nice', '-n19'])
         
-        # Build ffmpeg command to replace FLAC tracks
+        # Build ffmpeg command - CHANGED ORDER: original file first for proper timestamps
         cmd.extend([
             'ffmpeg',
-            '-i', audio_file,      # Input 0: new FLAC track
-            '-i', original_file,   # Input 1: original file
-            '-map', '1:v',         # Map video from original
-            '-map', '0:a:0',       # Map new FLAC as first audio track
+            '-i', original_file,   # Input 0: original file (for timestamps sync)
+            '-i', audio_file,      # Input 1: new FLAC track
+            '-map', '0:v',         # Map video from original
+            '-map', '1:a:0',       # Map new FLAC as first audio track
             '-c:v', 'copy',        # Copy video codec
             '-c:a:0', 'copy',      # Copy new FLAC audio
             '-metadata:s:a:0', 'title=FLAC 7.1',
@@ -225,7 +228,7 @@ class ConvertOperationHandler(OperationHandler):
                 if codec_name != 'flac':  # Skip existing FLAC tracks
                     stream_index = stream.get('index', 0)
                     cmd.extend([
-                        '-map', f'1:{stream_index}',
+                        '-map', f'0:{stream_index}',  # Changed from 1: to 0:
                         f'-c:a:{audio_track_count + 1}', 'copy',
                         f'-disposition:a:{audio_track_count + 1}', '0'  # Remove default disposition
                     ])
@@ -233,7 +236,7 @@ class ConvertOperationHandler(OperationHandler):
         
         # Map subtitles
         cmd.extend([
-            '-map', '1:s?',
+            '-map', '0:s?',  # Changed from 1:s? to 0:s?
             '-c:s', 'copy',
             '-loglevel', 'error',
             output_file
