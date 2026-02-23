@@ -190,65 +190,100 @@ class ConvertOperationHandler(OperationHandler):
     
     def _merge_audio_track(self, original_file, audio_file, output_file, use_nice):
         """
-        Merge FLAC audio track into MKV, replacing existing FLAC if present
+        Merge FLAC audio track into MKV using mkvmerge, replacing existing FLAC if present
         
         Strategy:
-        1. Map video from original
-        2. Map new FLAC as first audio track
-        3. Map all other audio tracks EXCEPT existing FLAC tracks
-        4. Map subtitles
+        1. Use mkvmerge for proper MKV handling
+        2. Add new FLAC as first audio track with default flag
+        3. Keep all other non-FLAC audio tracks without default flag
+        4. Keep all video and subtitle tracks
         """
+        logger.info("Starting mkvmerge audio track merge...")
         cmd = []
         
         # Add ionice/nice if file is on HDD
         if use_nice:
             cmd.extend(['ionice', '-c3', 'nice', '-n19'])
+            logger.info("Using ionice/nice for HDD")
         
-        # Build ffmpeg command - CHANGED ORDER: original file first for proper timestamps
+        # Build mkvmerge command
         cmd.extend([
-            'ffmpeg',
-            '-i', original_file,   # Input 0: original file (for timestamps sync)
-            '-i', audio_file,      # Input 1: new FLAC track
-            '-map', '0:v',         # Map video from original
-            '-map', '1:a:0',       # Map new FLAC as first audio track
-            '-c:v', 'copy',        # Copy video codec
-            '-c:a:0', 'copy',      # Copy new FLAC audio
-            '-metadata:s:a:0', 'title=FLAC 7.1',
-            '-metadata:s:a:0', 'language=eng',
-            '-disposition:a:0', 'default',
+            'mkvmerge',
+            '-o', output_file,
+            '--no-audio',  # Don't take audio from first input
+            '--no-subtitles',  # Don't take subtitles from first input yet
+            audio_file,  # New FLAC track (will be first audio)
         ])
         
-        # Map other audio tracks (skip FLAC tracks from original)
-        # We need to check each audio track and skip FLAC ones
+        # Get info about original file to selectively add tracks
+        logger.info("Analyzing original file tracks...")
         media_info = probe_media_file(original_file)
-        audio_track_count = 0
+        
+        # Build track selection for original file
+        audio_tracks = []
+        flac_count = 0
         for stream in media_info.get('streams', []):
             if stream.get('codec_type') == 'audio':
                 codec_name = stream.get('codec_name', '')
-                if codec_name != 'flac':  # Skip existing FLAC tracks
-                    stream_index = stream.get('index', 0)
-                    cmd.extend([
-                        '-map', f'0:{stream_index}',  # Changed from 1: to 0:
-                        f'-c:a:{audio_track_count + 1}', 'copy',
-                        f'-disposition:a:{audio_track_count + 1}', '0'  # Remove default disposition
-                    ])
-                    audio_track_count += 1
+                stream_index = stream.get('index', 0)
+                if codec_name == 'flac':
+                    flac_count += 1
+                    logger.info(f"Skipping existing FLAC track at index {stream_index}")
+                else:
+                    audio_tracks.append(str(stream_index))
+                    logger.info(f"Keeping {codec_name} track at index {stream_index}")
         
-        # Map subtitles
+        logger.info(f"Found {flac_count} FLAC track(s) to remove, {len(audio_tracks)} other audio track(s) to keep")
+        
+        # Add original file with selective tracks
+        if audio_tracks:
+            # Only include non-FLAC audio tracks
+            cmd.extend([
+                '--audio-tracks', ','.join(audio_tracks),
+                '--no-video',  # Video will be added separately
+                '--no-subtitles',  # Subtitles will be added separately
+                original_file
+            ])
+        
+        # Add video and subtitles from original
         cmd.extend([
-            '-map', '0:s?',  # Changed from 1:s? to 0:s?
-            '-c:s', 'copy',
-            '-loglevel', 'error',
-            output_file
+            '--no-audio',  # Don't take audio again
+            '--video-tracks', '0',  # Take video
+            '--subtitle-tracks', '0',  # Take all subtitles
+            original_file
         ])
+        
+        # Set track flags
+        cmd.extend([
+            '--default-track', '0:1',  # FLAC is default
+            '--track-name', '0:FLAC 7.1',  # Set FLAC track name
+            '--language', '0:eng',  # Set FLAC language
+        ])
+        
+        # Remove default flag from other audio tracks
+        for i, _ in enumerate(audio_tracks, start=1):
+            cmd.extend(['--default-track', f'{i}:0'])
+        
+        logger.info(f"Executing mkvmerge with {len(audio_tracks) + 1} audio track(s)")
+        logger.debug(f"Command: {' '.join(cmd)}")
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
-        if result.returncode != 0:
+        if result.returncode not in [0, 1]:  # mkvmerge returns 1 for warnings
+            logger.error(f"mkvmerge failed with return code {result.returncode}")
+            logger.error(f"stderr: {result.stderr}")
             raise Exception(f"Failed to merge audio track: {result.stderr}")
+        
+        if result.returncode == 1:
+            logger.warning(f"mkvmerge completed with warnings: {result.stderr}")
+        else:
+            logger.info("mkvmerge completed successfully")
         
         if not os.path.exists(output_file):
             raise Exception("Output file was not created")
+        
+        output_size = os.path.getsize(output_file) / (1024 * 1024 * 1024)
+        logger.info(f"Output file created: {output_size:.2f} GB")
     
     def _replace_file(self, original_path, new_path):
         """
