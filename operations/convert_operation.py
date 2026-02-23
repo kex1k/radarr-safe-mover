@@ -210,8 +210,6 @@ class ConvertOperationHandler(OperationHandler):
         cmd.extend([
             'mkvmerge',
             '-o', output_file,
-            '--no-audio',  # Don't take audio from first input
-            '--no-subtitles',  # Don't take subtitles from first input yet
             audio_file,  # New FLAC track (will be first audio)
         ])
         
