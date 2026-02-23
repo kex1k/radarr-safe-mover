@@ -282,6 +282,25 @@ class ConvertOperationHandler(OperationHandler):
         
         output_size = os.path.getsize(output_file) / (1024 * 1024 * 1024)
         logger.info(f"Output file created: {output_size:.2f} GB")
+        
+        # Verify output file tracks
+        logger.info("Verifying output file tracks...")
+        output_info = probe_media_file(output_file)
+        track_summary = []
+        for stream in output_info.get('streams', []):
+            codec_type = stream.get('codec_type', 'unknown')
+            codec_name = stream.get('codec_name', 'unknown')
+            index = stream.get('index', '?')
+            if codec_type == 'audio':
+                channels = stream.get('channels', '?')
+                layout = stream.get('channel_layout', '?')
+                track_summary.append(f"  [{index}] Audio: {codec_name} {channels}ch ({layout})")
+            elif codec_type == 'video':
+                track_summary.append(f"  [{index}] Video: {codec_name}")
+            elif codec_type == 'subtitle':
+                track_summary.append(f"  [{index}] Subtitle: {codec_name}")
+        
+        logger.info(f"Output file tracks:\n" + "\n".join(track_summary))
     
     def _replace_file(self, original_path, new_path):
         """
