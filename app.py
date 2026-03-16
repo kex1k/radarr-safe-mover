@@ -177,7 +177,7 @@ def get_movies():
 
 @app.route('/api/movies/dts', methods=['GET'])
 def get_dts_movies():
-    """Get movies with DTS 5.1 or FLAC 7.1 audio from Radarr"""
+    """Get movies with DTS 5.1 or FLAC 7.1 audio from Radarr with audio track info"""
     try:
         radarr = get_radarr_client()
         all_movies = radarr.get_all_movies()
@@ -189,22 +189,88 @@ def get_dts_movies():
         
         result_movies = []
         
+        from operations.media_operations import probe_media_file
+        
         for movie in all_movies:
             movie_file = movie.get('movieFile', {})
             if movie_file:
                 relative_path = movie_file.get('relativePath', '')
                 
-                if dts_pattern.search(relative_path):
-                    movie['_audio_type'] = 'dts'  # Mark as DTS for frontend
-                    result_movies.append(movie)
-                elif flac_pattern.search(relative_path):
-                    movie['_audio_type'] = 'flac'  # Mark as FLAC (retry candidate)
+                if dts_pattern.search(relative_path) or flac_pattern.search(relative_path):
+                    # Mark audio type
+                    if dts_pattern.search(relative_path):
+                        movie['_audio_type'] = 'dts'
+                    else:
+                        movie['_audio_type'] = 'flac'
+                    
+                    # Get audio tracks info
+                    file_path = movie_file.get('path')
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            media_info = probe_media_file(file_path)
+                            audio_tracks = []
+                            
+                            for stream in media_info.get('streams', []):
+                                if stream.get('codec_type') == 'audio':
+                                    audio_tracks.append({
+                                        'codec_name': stream.get('codec_name', 'Unknown'),
+                                        'channel_layout': stream.get('channel_layout', 'Unknown')
+                                    })
+                            
+                            movie['_audio_tracks'] = audio_tracks
+                        except Exception as e:
+                            logger.warning(f"Failed to get audio tracks for {movie['title']}: {str(e)}")
+                            movie['_audio_tracks'] = []
+                    else:
+                        movie['_audio_tracks'] = []
+                    
                     result_movies.append(movie)
         
         return jsonify(result_movies)
     except Exception as e:
         logger.error(f"Error getting DTS/FLAC movies: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/movies/<int:movie_id>/all-audio-tracks', methods=['GET'])
+def get_movie_all_audio_tracks(movie_id):
+    """Get all audio tracks information for a movie using ffprobe"""
+    try:
+        radarr = get_radarr_client()
+        movie = radarr.get_movie(movie_id)
+        
+        movie_file = movie.get('movieFile', {})
+        if not movie_file:
+            return jsonify({'error': 'Movie has no file'}), 404
+        
+        file_path = movie_file.get('path')
+        if not file_path:
+            return jsonify({'error': 'Movie file path not found'}), 404
+        
+        # Get all audio streams
+        from operations.media_operations import probe_media_file
+        media_info = probe_media_file(file_path)
+        
+        audio_tracks = []
+        for stream in media_info.get('streams', []):
+            if stream.get('codec_type') == 'audio':
+                audio_tracks.append({
+                    'index': stream.get('index'),
+                    'codec_name': stream.get('codec_name', 'Unknown'),
+                    'codec_long_name': stream.get('codec_long_name', 'Unknown'),
+                    'channels': stream.get('channels', 0),
+                    'channel_layout': stream.get('channel_layout', 'Unknown'),
+                    'sample_rate': stream.get('sample_rate', 'Unknown'),
+                    'bit_rate': stream.get('bit_rate', 'Unknown')
+                })
+        
+        return jsonify({'audio_tracks': audio_tracks})
+        
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Error getting audio tracks: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/movies/<int:movie_id>/audio-info', methods=['GET'])

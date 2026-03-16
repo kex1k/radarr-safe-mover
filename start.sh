@@ -40,10 +40,7 @@ echo "🚀 Starting container..."
 $COMPOSE_CMD up -d
 
 echo ""
-echo "✅ Radarr Safe Mover is now running!"
-echo ""
-echo "📱 Open your browser and navigate to:"
-echo "   http://localhost:9696"
+echo "✅ Ultimate Radarr Toolbox is now running!"
 echo ""
 echo "📋 To view logs, run:"
 echo "   $COMPOSE_CMD logs -f"

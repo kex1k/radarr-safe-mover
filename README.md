@@ -1,272 +1,276 @@
 # Ultimate Radarr Toolbox
 
-Многофункциональное веб-приложение для автоматизации работы с Radarr: безопасное перемещение фильмов между SSD и HDD дисками, конвертация DTS аудио в FLAC 7.1.
+Flask web application for Radarr automation: safe SSD→HDD movie transfers with checksum verification, DTS→FLAC 7.1 audio conversion, and media integrity checking.
 
-## Возможности
+## Features
 
-### 📦 Модуль Safe Copy (Безопасное копирование)
-- 📱 Мобильный интерфейс (mobile-first дизайн)
-- 🎬 Получение списка фильмов с SSD через Radarr API
-- 📋 Очередь копирования с отслеживанием статуса в реальном времени
-- 🔒 Безопасное копирование с использованием rsync, ionice и nice
-- ✅ Проверка контрольной суммы SHA256 после копирования
-- 🔄 Автоматическое обновление фильма в Radarr после копирования
-- 🗂️ Поиск "потерянных" файлов на SSD (не в Radarr)
-- ♻️ Повторное копирование файлов, отсутствующих на HDD
-- 🚨 Аварийная очистка очереди
-- 🔐 Автоматическая установка прав доступа (0755/0644)
+### 📦 Safe Copy Module
+- Mobile-first web interface
+- Fetch movies from SSD via Radarr API
+- Copy queue with real-time status tracking
+- Safe copying using rsync with ionice/nice (low I/O priority)
+- xxHash3_128 checksum verification after copy
+- Automatic Radarr update after successful copy
+- Find orphaned files on SSD (not tracked by Radarr)
+- Re-copy files missing on HDD
+- Emergency queue clear
+- Automatic permissions (0755/0644)
 
-### 🎵 Модуль DTS Converter (Конвертация аудио)
-- 🔍 Автоматическое обнаружение фильмов с DTS аудио
-- 🎧 Конвертация DTS 5.1(side) в FLAC 7.1
-- 📊 Отдельная очередь конвертации с прогрессом
-- ⚡ Использование ionice/nice для файлов на HDD (минимальная нагрузка)
-- 🔄 Автоматическая замена оригинального файла
-- 📡 Триггер пересканирования в Radarr после конвертации
-- ✨ Правильный маппинг каналов для 7.1 звука
+### 🎵 DTS Converter Module
+- Auto-detect movies with DTS audio
+- Convert DTS 5.1(side) to FLAC 7.1
+- Separate conversion queue with progress
+- ionice/nice for HDD files (minimal system load)
+- Automatic original file replacement
+- Radarr rescan trigger after conversion
+- Proper 7.1 channel mapping
 
-### ⚙️ Общие возможности
-- 🎯 Табовый интерфейс для переключения между модулями
-- ⚙️ Отдельная вкладка настроек
-- 🔄 Автообновление очередей каждые 2 секунды
-- 📜 История операций для каждого модуля
-- 🚨 Аварийные контроли для каждой очереди
+### 🔍 Media Integrity Checker
+- Scan directories for video files
+- Full ffmpeg decode verification (keyframes)
+- xxHash3_128 checksum storage and comparison
+- Detect corrupted or changed files
+- Background processing with pause/resume
 
-## Требования
+### ⚙️ General
+- Tabbed interface for module switching
+- Unified queue system for all operations
+- Auto-refresh every 2 seconds
+- Operation history (last 10)
+- Emergency controls for each queue
+
+## Requirements
 
 - Docker
-- Docker Compose (v1 или v2)
-- Доступ к Radarr API
-- ffmpeg (включен в Docker образ)
+- Docker Compose (v1 or v2)
+- Radarr API access
+- ffmpeg, mkvtoolnix (included in Docker image)
 
-## Установка и запуск
+## Installation
 
-1. Клонируйте репозиторий:
+1. Clone the repository:
 ```bash
 git clone <repository-url>
 cd ultimate-radarr-toolbox
 ```
 
-2. Отредактируйте `docker-compose.yml` и укажите пути к вашим SSD и HDD папкам:
+2. Edit `docker-compose.yml` and set your SSD/HDD paths:
 ```yaml
 volumes:
   - ./data:/app/data
-  - ./temp:/app/temp  # Временная директория для конвертации
-  - /path/to/your/ssd/movies:/media/movies_ssd  # Путь к SSD папке
-  - /path/to/your/hdd/movies:/media/movies_hdd  # Путь к HDD папке
+  - ./temp:/app/temp  # Temp directory for conversion
+  - /path/to/your/ssd/movies:/media/movies_ssd
+  - /path/to/your/hdd/movies:/media/movies_hdd
+  - /path/to/your/hdd/shows:/media/shows_hdd
 environment:
-  - TEMP_DIR=/app/temp  # Путь для временных файлов конвертации
+  - TEMP_DIR=/app/temp  # Critical for avoiding eMMC wear
 ```
 
-**Примечание:**
-- Пути внутри контейнера (`/media/movies_ssd` и `/media/movies_hdd`) должны соответствовать root folders в Radarr
-- `./temp` директория будет создана автоматически и используется для временных файлов при конвертации (избегает использования `/tmp` на eMMC)
+**Note:** Container paths (`/media/movies_ssd`, `/media/movies_hdd`) must match Radarr root folders.
 
-3. Запустите приложение:
-
+3. Start the application:
 ```bash
-# Используя скрипт (автоматически определяет docker-compose v1 или v2)
 ./start.sh
-
-# Или вручную с docker-compose v1
-docker-compose up -d
-
-# Или вручную с docker compose v2
-docker compose up -d
 ```
 
-4. Откройте браузер и перейдите по адресу:
+Or manually:
+```bash
+docker compose up -d      # v2
+docker-compose up -d      # v1
 ```
-http://localhost:6970
+
+4. View logs:
+```bash
+docker compose logs -f
 ```
 
-## Настройка
+## Configuration
 
-1. Откройте веб-интерфейс
-2. Перейдите на вкладку "⚙️ Settings"
-3. Заполните настройки Radarr:
-   - **Radarr Host**: IP-адрес или hostname сервера Radarr (например, `192.168.1.100`)
-   - **Radarr Port**: Порт Radarr (обычно `7878`)
-   - **Radarr API Key**: API ключ из настроек Radarr (Settings → General → Security → API Key)
-4. Нажмите "Save Settings"
+1. Open the web interface
+2. Go to "⚙️ Settings" tab
+3. Fill in Radarr settings:
+   - **Radarr Host**: IP or hostname (e.g., `192.168.1.100`)
+   - **Radarr Port**: Usually `7878`
+   - **Radarr API Key**: From Radarr Settings → General → Security
+4. Click "Save Settings"
 
-После сохранения настроек приложение автоматически определит root folders из Radarr.
+Root folders are auto-detected from Radarr after saving.
 
-## Использование
+## Usage
 
-### Модуль Safe Copy (Безопасное копирование)
+### Safe Copy
+1. Go to "📦 Safe Copy" tab
+2. Click "🔄 Refresh" to load SSD movies
+3. Click "➕ Add to Queue" to queue a movie
+4. Monitor progress in "Copy Queue" section
 
-1. Перейдите на вкладку "📦 Safe Copy"
-2. Нажмите "🔄 Refresh" для загрузки списка фильмов на SSD
-3. Нажмите "➕ Add to Queue" для добавления фильма в очередь копирования
-4. Следите за прогрессом в разделе "Copy Queue"
+**Statuses:**
+- 🟠 PENDING - Waiting in queue
+- 🔵 COPYING - File transfer in progress
+- 🟣 VERIFYING - Checksum verification
+- 🔵 UPDATING - Updating Radarr
+- 🟢 COMPLETED - Success
+- 🔴 FAILED - Error occurred
 
-**Статусы копирования:**
-- **PENDING** (🟠): Ожидает в очереди
-- **COPYING** (🔵): Идет копирование файла
-- **VERIFYING** (🟣): Проверка контрольной суммы
-- **UPDATING** (🔵): Обновление информации в Radarr
-- **COMPLETED** (🟢): Успешно завершено
-- **FAILED** (🔴): Ошибка при копировании
+### DTS Converter
+1. Go to "🎵 DTS Converter" tab
+2. Click "🔄 Refresh" to find DTS movies
+3. Click "🎵 Convert to FLAC" to queue conversion
+4. Monitor progress in "Conversion Queue" section
 
-### Модуль DTS Converter (Конвертация аудио)
+**Requirements:**
+- Codec: DTS (any variant)
+- Channel layout: 5.1(side)
+- Result: FLAC 7.1 with proper channel mapping
 
-1. Перейдите на вкладку "🎵 DTS Converter"
-2. Нажмите "🔄 Refresh" для поиска фильмов с DTS аудио
-3. Нажмите "🎵 Convert to FLAC" для добавления в очередь конвертации
-4. Следите за прогрессом в разделе "Conversion Queue"
+### Media Integrity Checker
+1. Go to "🔍 Integrity" tab
+2. Configure watch directories
+3. Run "Scan" to index files
+4. Run "Verify" to check integrity
+5. Run "Recheck" to compare checksums
 
-**Требования к аудио:**
-- Кодек: DTS (любой вариант)
-- Раскладка каналов: 5.1(side)
-- Результат: FLAC 7.1 с правильным маппингом каналов
+## Technical Details
 
-**Процесс конвертации:**
-1. Валидация формата аудио
-2. Извлечение и конвертация в FLAC 7.1
-3. Объединение нового аудио трека с видео
-4. Замена оригинального файла
-5. Пересканирование в Radarr
+### Copy Process
+1. Calculate source xxHash3_128 checksum
+2. Copy with `ionice -c3 nice -n19 rsync --chmod=D0755,F0644`
+3. Calculate destination checksum
+4. Compare checksums (delete on mismatch)
+5. Update movie path in Radarr
+6. Trigger Radarr rescan
 
-## Технические детали
+### Conversion Process
+1. Find DTS 5.1(side) audio track via ffprobe
+2. Convert to FLAC 7.1 with ffmpeg (compression level 8)
+3. Merge new track with mkvmerge (replace existing FLAC)
+4. Safe replace original file (backup → copy → verify → delete backup)
+5. Rename file to reflect FLAC.7.1
+6. Trigger Radarr rescan
 
-### Процесс копирования (Safe Copy)
+### Integrity Check Process
+1. **Scan**: Index video files with size/mtime fingerprint
+2. **Verify**: ffmpeg decode check + xxHash3_128 calculation
+3. **Recheck**: Compare stored checksums, detect changes
 
-1. **Копирование**: Файл копируется с использованием `rsync` с параметрами:
-   - `ionice -c3`: idle class (копирование только когда диск не занят)
-   - `nice -n19`: минимальный приоритет CPU
-   - `--chmod=D0755,F0644`: автоматическая установка прав доступа
-2. **Проверка**: SHA256 контрольная сумма исходного и скопированного файла
-3. **Обновление**: Фильм обновляется в Radarr с новым путем
-4. **Пересканирование**: Запускается RescanMovie для обновления информации
-
-### Процесс конвертации (DTS Converter)
-
-1. **Валидация**: Проверка формата аудио (DTS 5.1(side))
-2. **Конвертация**: ffmpeg конвертирует DTS в FLAC 7.1
-   - Для файлов на HDD используется `ionice -c3` и `nice -n19`
-   - Compression level: 8 (максимальное сжатие)
-   - Правильный маппинг каналов: FL, FR, FC, LFE, BL, BR, SL, SR
-3. **Объединение**: Новый FLAC трек добавляется как первый аудио трек
-4. **Замена**: Оригинальный файл заменяется новым
-5. **Пересканирование**: Radarr обновляет информацию о файле
-
-### Структура проекта
+## Project Structure
 
 ```
 ultimate-radarr-toolbox/
-├── core/                      # Переиспользуемые модули
-│   ├── config.py             # Управление конфигурацией
-│   ├── radarr.py             # Клиент Radarr API
-│   └── queue.py              # Система очередей операций
-├── operations/                # Специфичные операции
-│   ├── copy_operation.py     # Копирование с проверкой
-│   ├── convert_operation.py  # Конвертация DTS в FLAC
-│   └── leftovers.py          # Управление потерянными файлами
+├── core/                      # Reusable modules
+│   ├── config.py             # Configuration management
+│   ├── radarr.py             # Radarr API client
+│   └── queue.py              # Unified operation queue
+├── operations/                # Operation implementations
+│   ├── copy_operation.py     # Safe copy with verification
+│   ├── convert_operation.py  # DTS to FLAC conversion
+│   ├── file_operations.py    # Common file utilities
+│   ├── media_operations.py   # ffprobe/ffmpeg utilities
+│   ├── integrity_checker.py  # Media integrity system
+│   └── leftovers.py          # Orphaned file management
 ├── templates/
-│   └── index.html            # Веб-интерфейс с табами
-├── data/                      # Данные приложения (создается автоматически)
-│   ├── config.json           # Настройки
-│   ├── copy_queue.json       # Очередь копирования
-│   ├── copy_history.json     # История копирования
-│   ├── convert_queue.json    # Очередь конвертации
-│   └── convert_history.json  # История конвертации
-├── app.py                     # Основное приложение Flask
-├── Dockerfile                 # Docker образ с ffmpeg
-├── docker-compose.yml         # Docker Compose конфигурация
-├── convert-dts-to-flac.sh    # Оригинальный скрипт конвертации
-└── requirements.txt           # Python зависимости
+│   └── index.html            # Web interface
+├── data/                      # Runtime data (auto-created)
+│   ├── config.json           # Settings
+│   ├── queue.json            # Operation queue
+│   ├── history.json          # Operation history
+│   └── media_integrity.json  # Integrity data
+├── app.py                     # Flask application
+├── Dockerfile
+├── docker-compose.yml
+├── start.sh                   # Startup script
+└── requirements.txt
 ```
 
 ## API Endpoints
 
-### Основные
-- `GET /` - Главная страница
-- `GET /api/config` - Получить настройки
-- `POST /api/config` - Сохранить настройки
-- `GET /api/movies` - Получить список фильмов на SSD
-- `GET /api/movies/dts` - Получить список фильмов с DTS аудио
+### Configuration
+- `GET /api/config` - Get settings (API key masked)
+- `POST /api/config` - Update settings
 
-### Очередь копирования
-- `GET /api/queue/copy` - Получить очередь копирования
-- `POST /api/queue/copy` - Добавить фильм в очередь копирования
-- `DELETE /api/queue/copy/<item_id>` - Удалить из очереди
-- `POST /api/queue/copy/clear` - Очистить очередь копирования
+### Movies
+- `GET /api/movies` - Get SSD movies
+- `GET /api/movies/dts` - Get movies with DTS audio
+- `GET /api/movies/<id>/audio-info` - Get audio codec info
 
-### Очередь конвертации
-- `GET /api/queue/convert` - Получить очередь конвертации
-- `POST /api/queue/convert` - Добавить фильм в очередь конвертации
-- `DELETE /api/queue/convert/<item_id>` - Удалить из очереди
-- `POST /api/queue/convert/clear` - Очистить очередь конвертации
+### Queue
+- `GET /api/queue` - Get operation queue
+- `POST /api/queue/add` - Add to queue (`{movie, operation_type}`)
+- `DELETE /api/queue/<id>` - Remove from queue
+- `POST /api/queue/clear` - Clear entire queue
 
-### История операций
-- `GET /api/history/copy` - История копирования
-- `GET /api/history/convert` - История конвертации
+### History
+- `GET /api/history` - Get operation history (last 10)
+- `POST /api/convert/retry` - Retry failed conversion
 
-### Потерянные файлы
-- `GET /api/leftovers` - Найти потерянные файлы
-- `DELETE /api/leftovers` - Удалить потерянный файл
-- `POST /api/leftovers/recopy` - Повторно скопировать файл
+### Leftovers
+- `GET /api/leftovers` - Find orphaned files
+- `DELETE /api/leftovers` - Delete orphaned directory
+- `POST /api/leftovers/recopy` - Re-copy orphaned file
 
-## Безопасность
+### Integrity
+- `GET /api/integrity/config` - Get integrity config
+- `POST /api/integrity/config` - Update integrity config
+- `POST /api/integrity/scan/start` - Start scan
+- `POST /api/integrity/scan/stop` - Stop scan
+- `GET /api/integrity/scan/status` - Get scan status
+- `POST /api/integrity/verify/start` - Start verification
+- `POST /api/integrity/verify/stop` - Stop verification
+- `POST /api/integrity/verify/resume` - Resume verification
+- `GET /api/integrity/verify/status` - Get verification status
+- `POST /api/integrity/recheck/start` - Start recheck
+- `POST /api/integrity/recheck/stop` - Stop recheck
+- `GET /api/integrity/recheck/status` - Get recheck status
+- `GET /api/integrity/files` - Get all indexed files
+- `GET /api/integrity/files/broken` - Get broken files
+- `GET /api/integrity/files/changed` - Get changed files
+- `GET /api/integrity/stats` - Get statistics
+- `POST /api/integrity/reset` - Reset all data
+- `POST /api/integrity/clear-reports` - Clear reports
+- `POST /api/integrity/reset-broken` - Reset broken to pending
+- `GET /api/integrity/export-issues` - Export issues as text
 
-Приложение предназначено для использования в домашней сети. Рекомендуется:
-- Не открывать порт 6970 в интернет
-- Использовать в защищенной локальной сети
-- Регулярно делать резервные копии данных
+## Security
 
-## Устранение неполадок
+This application is designed for home network use:
+- Do not expose port 6970 to the internet
+- Use in a protected local network
+- Regularly backup your data
 
-### Не удается подключиться к Radarr
-- Проверьте, что Radarr запущен и доступен
-- Убедитесь, что указан правильный IP-адрес и порт
-- Проверьте API ключ в настройках Radarr
+## Troubleshooting
 
-### Ошибка при копировании
-- Убедитесь, что у контейнера есть доступ к обеим папкам
-- Проверьте права доступа к файлам
-- Убедитесь, что на HDD достаточно свободного места
+### Cannot connect to Radarr
+- Verify Radarr is running and accessible
+- Check IP address and port
+- Verify API key in Radarr settings
 
-### Ошибка при конвертации
-- Проверьте, что файл имеет DTS 5.1(side) аудио
-- Убедитесь, что ffmpeg установлен (включен в Docker образ)
-- Проверьте логи для деталей ошибки
+### Copy errors
+- Ensure container has access to both folders
+- Check file permissions
+- Verify sufficient free space on HDD
 
-### Фильмы не отображаются
-- Проверьте настройки Radarr
-- Убедитесь, что в Radarr есть фильмы в указанных папках
-- Нажмите кнопку "Refresh" для обновления списка
+### Conversion errors
+- Verify file has DTS 5.1(side) audio
+- Check logs for ffmpeg/mkvmerge errors
+- Ensure TEMP_DIR has sufficient space
 
-## Логи
+### Movies not showing
+- Check Radarr settings
+- Verify movies exist in configured folders
+- Click "Refresh" to reload
 
-Для просмотра логов используйте:
+## Logs
 
 ```bash
-# С docker-compose v1
-docker-compose logs -f ultimate-radarr-toolbox
-
-# С docker compose v2
 docker compose logs -f ultimate-radarr-toolbox
 ```
 
-## Остановка приложения
+## Stop Application
 
 ```bash
-# С docker-compose v1
-docker-compose down
-
-# С docker compose v2
 docker compose down
 ```
 
-## Архитектура
-
-Проект построен с модульной архитектурой:
-- **Core модули** (`core/`) - переиспользуемая функциональность
-- **Operations модули** (`operations/`) - специфичные операции
-
-Подробнее см. [`ARCHITECTURE.md`](ARCHITECTURE.md) и [`FORK_GUIDE.md`](FORK_GUIDE.md)
-
-## Лицензия
+## License
 
 MIT License
